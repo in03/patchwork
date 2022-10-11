@@ -6,13 +6,13 @@ Imagine Git diffing for DaVinci Resolve renders...
 Patchwork diffs your old renders with your current timeline and only re-renders changes you've made. 
 Even with inter-frame compression codecs like h.264. 
 
-### Why? 
+### Why?
 Complex renders can take a long time and a small change shouldn't warrant a complete re-render. You also have to quality check each render for corruption, artifacting, green or black frames, offline-media, etc. sax This way you only have to check what you've re-rendered. It also allows chunking jobs and using multiple DaVinci Resolve remote-rendering machines to work on a single render. Again, even with inter-frame compression codecs, like h.264. Theoretically, renders will only take as long as computers you have free (or rather, Resolve licenses you own!). Sometimes deadline dramas warrant dropping all projects and focussing resources on a single deliverable.
 
 ## Proposal
 
 There's a long road ahead for this project. Doing things in stages will be the best way to keep sane and not get overwhelmed.
-We'll probably start by creating a custom workflow integration for rendering that hooks into Resolve's Python API. We can get a .fcpxml file exported of the entire timeline, diff it with the one from the last export and use that to inform which sections we re-render. Final Cut XML is a popular editorial format that most NLEs support. It has strong support in OpenTimelineIO, which we can use for the heavy lifting. It doesn't support fancy speed effects, colour-grade data, fusion compositions or fairlight effects, but no non-Resolve-native format does. Maybe sometime down the line we'll look into diffing .drt (DaVinci Resolve timelines), but .fcpxml is enough of a handful without support for the extra data and the non-existant specs or docs for .drt. It is forbidden territory. 
+We'll probably start by creating a custom workflow integration for rendering that hooks into Resolve's Python API. We can get a .fcpxml file exported of the entire timeline, diff it with the one from the last export and use that to inform which sections we re-render. Final Cut XML is a popular editorial format that most NLEs support. It has strong support in OpenTimelineIO, which we can use for the heavy lifting. It doesn't support fancy speed effects, colour-grade data, fusion compositions or fairlight effects, but no non-Resolve-native format does. Maybe sometime down the line we'll look into diffing .drt (DaVinci Resolve timelines), but .fcpxml is enough of a handful without support for the extra data and the non-existent specs or docs for .drt. It is forbidden territory. 
 
 We could even support diffing initial renders delivered through Resolve natively by using pre-render script hooks built into export presets to export .fcpxml files of the timeline on render. Of course this only works for the initial state but at least it means users won't have to use the workflow integration for every render they want to support.
 
