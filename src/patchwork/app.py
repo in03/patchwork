@@ -1,4 +1,6 @@
+from datetime import datetime, timedelta
 import logging
+from pathlib import Path
 from pydavinci import davinci
 from pydavinci.wrappers.marker import Marker
 from timecode import Timecode
@@ -18,24 +20,25 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-resolve = davinci.Resolve()
 dpg.create_context()
 dpg.set_global_font_scale(1.5)
 
+def save_init():
+    dpg.save_init_file("dpg.ini")
 
-class DialogBox():
-    def __init__(self):
-        
-        with dpg.window(label="Dialog", modal=True, show=False, tag="dialog_box", no_title_bar=True, autosize=True, pos=[150, 225]):
-            dpg.add_text("Dialog text goes here", tag="dialog_text", wrap=500)
-            dpg.add_separator()
-            with dpg.group(horizontal=True, tag="dialog_buttons"):
-                dpg.add_button(label="Ok", callback=lambda: dpg.configure_item("dialog_box", show=False))
-                
-                
-    def prompt(self, message:str):
-        dpg.configure_item("dialog_box", show=True, label="dialog")
-        dpg.set_value("dialog_text", message)
+app_file_path = Path(__file__)
+src_folder = app_file_path.parent.absolute()
+root_folder = src_folder.parent.absolute()
+
+width, height, channels, data = dpg.load_image(os.path.join(src_folder, "logo.png"))
+with dpg.texture_registry(show=False):
+    dpg.add_static_texture(width=width, height=height, default_value=data, tag="texture_tag")
+    
+from widgets import dialog_box
+
+# RESOLVE INIT
+resolve = davinci.Resolve()
+resolve.active_timeline.custom_settings(True)
 
 # RENDER PRESET
 def choose_render_preset_callback():
@@ -194,14 +197,11 @@ class RenderPatchFile():
         print("Sender: ", sender)
         print("App Data: ", app_data)
 
-
-dialog_box = DialogBox()
 track_patch_file = TrackPatchfile()
 render_patch_file = RenderPatchFile()
 
 
 # Helpers
-
 def get_next_free_marker_num():
     """Get the next marker number in the series"""
     
@@ -226,39 +226,32 @@ def get_next_free_marker_num():
     next_num = last_num + 1
     return str(next_num)
 
-def frames_to_playhead() -> int:   
-    timeline = resolve.active_timeline
-    frame_rate = resolve.active_timeline.settings.frame_rate
-    tc = Timecode(framerate=frame_rate, start_timecode=timeline.timecode)
-    print(f"Timecode: {timeline.timecode} Frames: {tc.frames} Framerate: {frame_rate}")
-    assert tc.frames is not None
-    return tc.frames
-
 def toggle_always_on_top():
     
-    dpg.add_bool_value(label="on_top", default_value=False)
-    if dpg.get_value("on_top"):
+    if dpg.get_value("menu_always_on_top"):
         dpg.set_viewport_always_top(True)
     else:
         dpg.set_viewport_always_top(False)
 
-
-
 # Commands
 def create_marker():
     
+    timeline = resolve.active_timeline
+    framerate = resolve.active_timeline.settings.frame_rate
+    min_duration = int(framerate) * 2
+    tc = Timecode(framerate=framerate, start_timecode=timeline.timecode)
+    print(f"Timecode: {timeline.timecode} Frames: {tc.frames} Framerate: {framerate}")
+    assert tc.frames is not None
+    
     if not resolve.active_timeline.markers.add(
-        frames_to_playhead(), 
+        tc.frames - 1,
         "Purple", 
-        duration=2, 
+        duration=min_duration, 
         name=f"Change - {get_next_free_marker_num()}", 
         customdata="patchwork_marker"
     ):
     
-        dialog_box.prompt(
-            f"Couldn't create a marker at {resolve.active_timeline.timecode}"
-            " Please make sure there isn't already a marker there."
-        )
+        dialog_box.prompt("Looks like there's already a marker there!")
 
 def clear_markers():
     """
@@ -274,6 +267,8 @@ def clear_markers():
 def commit_changes():
     project = resolve.project
     timeline = resolve.active_timeline
+    framerate = timeline.settings.frame_rate
+    min_duration = int(framerate) * 2
     markers = timeline.markers.find_all("patchwork_marker")
     
     if not markers:
@@ -282,11 +277,10 @@ def commit_changes():
             "Please mark some changes first",
         )
         return
-    
-    invalid_markers = [x for x in markers if x.duration < 1]
+    invalid_markers = [x for x in markers if x.duration < min_duration]
     if invalid_markers:
         dialog_box.prompt(
-            "Markers cannot be shorter than 1 second.\n"
+            "Markers shouldn't be shorter than 2 seconds.\n"
             f"These markers are invalid:\n{invalid_markers}",
         )
         return
@@ -319,13 +313,23 @@ with dpg.window(tag="primary_window", autosize=True):
     with dpg.menu_bar():
 
         with dpg.menu(label="Settings"):
-            dpg.add_menu_item(label="Always on top", check=True, callback=toggle_always_on_top)
+            dpg.add_menu_item(label="Always on top", check=True, tag="menu_always_on_top", default_value=True, callback=toggle_always_on_top)
             dpg.add_menu_item(label="Preferences")
             
         with dpg.menu(label="Help"):
             dpg.add_menu_item(label="About")
             dpg.add_menu_item(label="Docs", callback=open_documentation)
-            
+    
+    dpg.add_image("texture_tag") 
+        
+    dpg.add_separator()
+    dpg.add_spacer(height=20) 
+    
+                    
+    dpg.add_text("Currently untracked", tag="master_status", color=[255, 100, 100], wrap=500)
+    with dpg.tooltip("master_status"):
+        dpg.add_text(f"On the source page, select a patchwork file to track\nor render a new master file", tag="master_status_tooltip")
+        
     dpg.add_separator()
     dpg.add_spacer(height=20) 
         
@@ -336,34 +340,42 @@ with dpg.window(tag="primary_window", autosize=True):
             
             # CHANGES PAGE
             with dpg.tab(label="Changes"):
-                
+                dpg.add_spacer(height=20) 
+            
+                dpg.add_text("Mark changes on the active timeline to patch the master file with", wrap=500)
                 dpg.add_spacer(height=20) 
                 
-                with dpg.group(tag="action_group", horizontal=True):
-                            
+
+                with dpg.group(tag="add_group", horizontal=True):
+                    
                     # ADD BUTTON
                     dpg.add_button(label="Add", tag="Add", callback=create_marker)
-                    with dpg.tooltip("Add"):
-                        dpg.add_text("Mark changes on the active timeline\nto patch the master file with")
-                                
-                    # COMMIT BUTTON
-                    dpg.add_button(label="Commit", tag="Commit", callback=commit_changes)
-                    with dpg.tooltip("Commit"):
-                        dpg.add_text("Commit changes and \ncreate render jobs")
+                    
+                    # CLEAR BUTTON
+                    dpg.add_button(label="Clear Changes", tag="clear_changes", callback=clear_markers)
+                    with dpg.tooltip("clear_changes"):
+                        dpg.add_text("Clear all of Patchwork's ranged-markers\nfrom the active timeline")
                         
-                    dpg.add_spacer(height=20) 
+                dpg.add_text("N/A", tag="current_timecode_display", color=[255, 150, 0])
                         
-                    # PUSH BUTTON
-                    dpg.add_button(label="Push", tag="Push", callback=push_changes)
-                    with dpg.tooltip("Push"):
-                        dpg.add_text("Render and merge changes")
+                dpg.add_separator()
+                dpg.add_spacer(height=20)
                             
-                    dpg.add_spacer(height=20) 
-                
-                # CLEAR BUTTON
-                dpg.add_button(label="Clear Changes", tag="clear_changes", callback=clear_markers)
-                with dpg.tooltip("clear_changes"):
-                    dpg.add_text("Clear all of Patchwork's ranged-markers\nfrom the active timeline")
+                # COMMIT BUTTON
+                dpg.add_text("Commit changes and create render jobs", wrap=500)
+                dpg.add_button(label="Commit", tag="Commit", callback=commit_changes)
+                    
+                dpg.add_separator()
+                dpg.add_spacer(height=20) 
+                    
+                # PUSH BUTTON
+                dpg.add_button(label="Push", tag="Push", callback=push_changes)
+                with dpg.tooltip("Push"):
+                    dpg.add_text("Render and merge changes")
+                        
+                dpg.add_separator()
+                dpg.add_spacer(height=20) 
+            
                     
                 dpg.add_spacer(height=20) 
                 
@@ -371,25 +383,103 @@ with dpg.window(tag="primary_window", autosize=True):
             with dpg.tab(label="Source"):
                 
                 dpg.add_spacer(height=20)
-                dpg.add_text("Track existing")
-                dpg.add_text("Currently untracked", tag="master_status", color=[255, 100, 100], wrap=400)
-                with dpg.tooltip("master_status"):
-                    dpg.add_text(f"On the source page, select a patchwork file to track\nor render a new master file", tag="master_status_tooltip")
+                dpg.add_text("Track existing sidecar file")
+                    
                 with dpg.group(tag="file_selector", horizontal=True):
                     dpg.add_button(label="Browse", tag="link_browse_button", callback=lambda: dpg.show_item("track_file_dialog"))
                     dpg.add_input_text(default_value="", tag="track_file_input")
                 dpg.add_button(label="Link", tag="link_patchfile", callback=lambda: dpg.show_item("track_file_dialog"), show=False)
                 
                 dpg.add_spacer(height=20)
-                dpg.add_text("Render a new master file")
-                dpg.add_button(label="Browse", tag="render_browse_button", callback=lambda: dpg.show_item("render_file_dialog"))
+                dpg.add_text("Render new master and regenerate sidecar file")
+                with dpg.group(tag="render_buttons", horizontal=True):
+                    dpg.add_button(label="Browse", tag="render_browse_button", callback=lambda: dpg.show_item("render_file_dialog"))
+                    dpg.add_button(label="Choose render preset", tag="choose_render_preset_button", callback=lambda: choose_render_preset())
+                    dpg.add_button(label="Render", tag="render_start_button", callback=lambda: dialog_box.prompt("TODO: Render!"))
                 dpg.add_spacer(height=20) 
                 
     dpg.add_separator()
     dpg.add_spacer(height=20) 
   
 dpg.create_viewport(title='Patchwork 0.1.0', width=800, height=540)
+dpg.configure_app(init_file=os.path.join(root_folder, "dpg.ini"))
+dpg.set_viewport_always_top(True)
 dpg.setup_dearpygui()
 dpg.show_viewport()
-dpg.start_dearpygui()
+
+# Flags
+start_timecode_check_dismissed = False
+
+# Counters
+in_3_sec = datetime.now() + timedelta(seconds=3)
+in_half_sec = datetime.now() + timedelta(seconds=0.5)
+while dpg.is_dearpygui_running():
+    
+    if datetime.now() > in_half_sec:
+        
+        # TODO: Check Resolve is open, lock up whole interface with warning otherwise
+        # No option to dismiss dialog box. Automatically dismiss box when Resolve is opened
+        
+        # TODO: Check timeline is open, lock up whole interface with warning otherwise
+        # No option to dismiss dialog box. Automatically dismiss box when timeline is opened
+        
+        # TODO: Check timeline is same as tracked timeline, disable changes page
+        # On each timeline change, ensure custom settings are enabled. Make it so.        
+        
+        # TODO: Check timeline timecode start is 00:00:00, since it causes markers to be in the wrong place
+        # Lock up interface with dialog with options to set timecode to 00:00:00 or close the app: "Set" "Exit"
+        frame_rate = resolve.active_timeline.settings.frame_rate
+        current_timecode = resolve.active_timeline.timecode
+
+        if not start_timecode_check_dismissed:
+            if Timecode(frame_rate, current_timecode).hrs >= 1:
+                if not dpg.is_item_shown("dialog_box"):
+                    
+                    dialog_box.prompt(
+                        "Hey! Does your timeline timecode start at 01:00:00? If so, please set it to 00:00:00. "
+                        "Resolve's API has a glitch that causes markers to appear an hour later on the timeline. "
+                        "If not, nevermind."
+                    )
+                    start_timecode_check_dismissed = True
+
+    
+    # Refresh current timecode
+        
+        current_timecode = resolve.active_timeline.timecode
+        resolve.active_timeline.custom_settings(True)
+        framerate = resolve.active_timeline.settings.frame_rate
+        
+        current_marker = None
+        current_frame = Timecode(framerate, resolve.active_timeline.timecode).frames
+        
+        if current_frame:
+            
+            current_frame -=1 
+            current_marker = [x for x in resolve.active_timeline.markers if current_frame >= x.frameid and current_frame < (x.frameid + x.duration)]
+        
+        if current_marker:
+            
+            assert len(current_marker) == 1
+            current_marker = current_marker[0]
+            
+            #TODO: Set flag to allow prompting "overwrite"
+            
+            if not current_marker.customdata == "patchwork_marker":
+                
+                dpg.set_value("current_timecode_display", f"On unsupported marker")
+                dpg.configure_item("current_timecode_display", color=[250, 0, 0])  
+                
+            else:
+                dpg.set_value("current_timecode_display", f"On marker: '{current_marker.name}'")
+                dpg.configure_item("current_timecode_display", color=[0, 255, 0])
+            
+        else:
+            dpg.set_value("current_timecode_display", f"{current_timecode} | {current_frame}")
+            dpg.configure_item("current_timecode_display", color=[50, 150, 255])
+        
+        in_half_sec = datetime.now() + timedelta(seconds=0.5)
+    dpg.render_dearpygui_frame()
+
+# TODO: Fix save init file
+dpg.save_init_file(os.path.join(root_folder, "dpg.ini"))
 dpg.destroy_context()
