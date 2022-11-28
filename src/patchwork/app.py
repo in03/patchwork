@@ -1,3 +1,5 @@
+
+import copy
 from datetime import datetime, timedelta
 import logging
 from pathlib import Path
@@ -12,6 +14,7 @@ from deepdiff import DeepDiff
 
 import dearpygui.dearpygui as dpg
 
+# Logging
 logging.basicConfig(
     level="NOTSET",
     format="%(message)s",
@@ -20,20 +23,32 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# GLOBAL VARS
+
+app_file_path = Path(__file__)
+src_folder = app_file_path.parent.absolute()
+root_folder = src_folder.parent.absolute()
+
+# Flags
+start_timecode_check_dismissed = False
+
+# Counters
+in_3_sec = datetime.now() + timedelta(seconds=3)
+in_half_sec = datetime.now() + timedelta(seconds=0.5)
+
+
+# DearPyGUI Init
 dpg.create_context()
 dpg.set_global_font_scale(1.5)
 
 def save_init():
     dpg.save_init_file("dpg.ini")
 
-app_file_path = Path(__file__)
-src_folder = app_file_path.parent.absolute()
-root_folder = src_folder.parent.absolute()
-
 width, height, channels, data = dpg.load_image(os.path.join(src_folder, "logo.png"))
 with dpg.texture_registry(show=False):
     dpg.add_static_texture(width=width, height=height, default_value=data, tag="texture_tag")
     
+import routines
 from widgets import dialog_box
 
 # RESOLVE INIT
@@ -233,9 +248,8 @@ def toggle_always_on_top():
     else:
         dpg.set_viewport_always_top(False)
 
-# Commands
 def create_marker():
-    
+
     timeline = resolve.active_timeline
     framerate = resolve.active_timeline.settings.frame_rate
     min_duration = int(framerate) * 2
@@ -250,8 +264,8 @@ def create_marker():
         name=f"Change - {get_next_free_marker_num()}", 
         customdata="patchwork_marker"
     ):
-    
-        dialog_box.prompt("Looks like there's already a marker there!")
+        return False
+    return True
 
 def clear_markers():
     """
@@ -260,11 +274,27 @@ def clear_markers():
     timeline = resolve.active_timeline
     markers = timeline.markers.find_all("patchwork_marker")
     
-    if markers:
-        
-        [x.delete() for x in markers]
-        
+    if not markers:
+        return False
+    
+    [x.delete() for x in markers]
+    return True
+
+# Commands
+def add_change():
+      
+    if not create_marker():
+        dialog_box.prompt("Looks like there's already a marker there!")
+        return
+
+def clear_changes():
+    
+    if not clear_markers():
+        dialog_box.prompt("Oops, no changes to clear.")
+        return
+
 def commit_changes():
+    
     project = resolve.project
     timeline = resolve.active_timeline
     framerate = timeline.settings.frame_rate
@@ -299,6 +329,7 @@ def commit_changes():
         job_id = project.add_renderjob()
         job_ids.append(job_id)
         print(job_ids)
+        
 
 def push_changes():
     ...
@@ -349,10 +380,10 @@ with dpg.window(tag="primary_window", autosize=True):
                 with dpg.group(tag="add_group", horizontal=True):
                     
                     # ADD BUTTON
-                    dpg.add_button(label="Add", tag="Add", callback=create_marker)
+                    dpg.add_button(label="Add", tag="Add", callback=add_change)
                     
                     # CLEAR BUTTON
-                    dpg.add_button(label="Clear Changes", tag="clear_changes", callback=clear_markers)
+                    dpg.add_button(label="Clear Changes", tag="clear_changes", callback=clear_changes)
                     with dpg.tooltip("clear_changes"):
                         dpg.add_text("Clear all of Patchwork's ranged-markers\nfrom the active timeline")
                         
@@ -363,7 +394,9 @@ with dpg.window(tag="primary_window", autosize=True):
                             
                 # COMMIT BUTTON
                 dpg.add_text("Commit changes and create render jobs", wrap=500)
-                dpg.add_button(label="Commit", tag="Commit", callback=commit_changes)
+                with dpg.group(tag="commit_group"):
+                    dpg.add_text("No changes to commit", tag="commit_status", color=[255, 100, 100], wrap=500)
+                    dpg.add_button(label="Commit", tag="Commit", callback=commit_changes)
                     
                 dpg.add_separator()
                 dpg.add_spacer(height=20) 
@@ -407,77 +440,30 @@ dpg.set_viewport_always_top(True)
 dpg.setup_dearpygui()
 dpg.show_viewport()
 
-# Flags
-start_timecode_check_dismissed = False
-
-# Counters
-in_3_sec = datetime.now() + timedelta(seconds=3)
-in_half_sec = datetime.now() + timedelta(seconds=0.5)
 while dpg.is_dearpygui_running():
+        
+    # REACTIVE VARIABLES
+    markers = copy.copy(resolve.active_timeline.markers)
+    frame_rate = copy.copy(resolve.active_timeline.settings.frame_rate)
+    current_timecode = copy.copy(resolve.active_timeline.timecode)
     
-    if datetime.now() > in_half_sec:
-        
-        # TODO: Check Resolve is open, lock up whole interface with warning otherwise
-        # No option to dismiss dialog box. Automatically dismiss box when Resolve is opened
-        
-        # TODO: Check timeline is open, lock up whole interface with warning otherwise
-        # No option to dismiss dialog box. Automatically dismiss box when timeline is opened
-        
-        # TODO: Check timeline is same as tracked timeline, disable changes page
-        # On each timeline change, ensure custom settings are enabled. Make it so.        
-        
-        # TODO: Check timeline timecode start is 00:00:00, since it causes markers to be in the wrong place
-        # Lock up interface with dialog with options to set timecode to 00:00:00 or close the app: "Set" "Exit"
-        frame_rate = resolve.active_timeline.settings.frame_rate
-        current_timecode = resolve.active_timeline.timecode
-
-        if not start_timecode_check_dismissed:
-            if Timecode(frame_rate, current_timecode).hrs >= 1:
-                if not dpg.is_item_shown("dialog_box"):
-                    
-                    dialog_box.prompt(
-                        "Hey! Does your timeline timecode start at 01:00:00? If so, please set it to 00:00:00. "
-                        "Resolve's API has a glitch that causes markers to appear an hour later on the timeline. "
-                        "If not, nevermind."
-                    )
-                    start_timecode_check_dismissed = True
+    # SIMPLE
+    resolve.active_timeline.custom_settings(True)
 
     
-    # Refresh current timecode
+    # TODO: Check Resolve is open, lock up whole interface with warning otherwise
+    # No option to dismiss dialog box. Automatically dismiss box when Resolve is opened
+    
+    # TODO: Check timeline is open, lock up whole interface with warning otherwise
+    # No option to dismiss dialog box. Automatically dismiss box when timeline is opened
+    
+    # TODO: Check timeline is same as tracked timeline, disable changes page
+    # On each timeline change, ensure custom settings are enabled. Make it so.
         
-        current_timecode = resolve.active_timeline.timecode
-        resolve.active_timeline.custom_settings(True)
-        framerate = resolve.active_timeline.settings.frame_rate
+    routines.check_timecode_starts_at_zero(current_timecode, frame_rate)
+    routines.refresh_add_status(markers, current_timecode, frame_rate)
+    routines.refresh_commit_status(markers)
         
-        current_marker = None
-        current_frame = Timecode(framerate, resolve.active_timeline.timecode).frames
-        
-        if current_frame:
-            
-            current_frame -=1 
-            current_marker = [x for x in resolve.active_timeline.markers if current_frame >= x.frameid and current_frame < (x.frameid + x.duration)]
-        
-        if current_marker:
-            
-            assert len(current_marker) == 1
-            current_marker = current_marker[0]
-            
-            #TODO: Set flag to allow prompting "overwrite"
-            
-            if not current_marker.customdata == "patchwork_marker":
-                
-                dpg.set_value("current_timecode_display", f"On unsupported marker")
-                dpg.configure_item("current_timecode_display", color=[250, 0, 0])  
-                
-            else:
-                dpg.set_value("current_timecode_display", f"On marker: '{current_marker.name}'")
-                dpg.configure_item("current_timecode_display", color=[0, 255, 0])
-            
-        else:
-            dpg.set_value("current_timecode_display", f"{current_timecode} | {current_frame}")
-            dpg.configure_item("current_timecode_display", color=[50, 150, 255])
-        
-        in_half_sec = datetime.now() + timedelta(seconds=0.5)
     dpg.render_dearpygui_frame()
 
 # TODO: Fix save init file
