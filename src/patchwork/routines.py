@@ -1,33 +1,13 @@
-from datetime import datetime, timedelta
 from timecode import Timecode
 from dearpygui import dearpygui as dpg
 from pydavinci.wrappers.marker import MarkerCollection
 from widgets import dialog_box
 
-# TODO: Fix this! 
-# While it does block functions from running every half second
-# It also allows multiple function calls at dpg's refresh rate for the next half second...
-def is_refreshable(refresh_rate:float) -> bool:
-
-    current_time = datetime.now()
-    last_run = dpg.get_value(f"{refresh_rate}_lastrun")
-    
-    if last_run == None:
-        with dpg.value_registry():
-            dpg.add_string_value(tag=f"{refresh_rate}_lastrun", default_value=str(current_time.strftime('%y%m%d%H%M%S')))
-            last_run = dpg.get_value(f"{refresh_rate}_lastrun")
-    
-    last_run = datetime.strptime(last_run, '%y%m%d%H%M%S')
-    if current_time - last_run < timedelta(seconds=refresh_rate):
-        return False
-    
-    dpg.set_value(f"{refresh_rate}_lastrun", str(current_time.strftime('%y%m%d%H%M%S')))
-    return True
+import trio
 
 def refresh_add_status(markers:MarkerCollection, current_timecode:str, frame_rate:float, refresh_rate:float=0.5):
     
-    if not is_refreshable(refresh_rate):
-        return
+    # await trio.sleep(refresh_rate)
 
     current_frame = Timecode(frame_rate, current_timecode).frames
     current_marker = None
@@ -71,8 +51,7 @@ def check_timecode_starts_at_zero(current_timecode:str, frame_rate:float, refres
         start_timecode_check_dismissed (bool): The flag to check for dialog box dismissal
     """
     
-    if not is_refreshable(refresh_rate):
-        return
+    # await trio.sleep(refresh_rate)
     
     dismissed = dpg.get_value("zero_timecode_warning_dismissed")
     if dismissed is None:
@@ -90,11 +69,6 @@ def check_timecode_starts_at_zero(current_timecode:str, frame_rate:float, refres
             dpg.set_value("zero_timecode_warning_dismissed", True)
 
 def refresh_commit_status(markers:MarkerCollection, refresh_rate:float=0.5):
-    
-    if not is_refreshable(refresh_rate):
-        return
-    else:
-        print("hey")
     
     committed_changes = []
     uncommitted_changes = []

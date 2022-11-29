@@ -215,7 +215,6 @@ class RenderPatchFile():
 track_patch_file = TrackPatchfile()
 render_patch_file = RenderPatchFile()
 
-
 # Helpers
 def get_next_free_marker_num():
     """Get the next marker number in the series"""
@@ -440,32 +439,38 @@ dpg.set_viewport_always_top(True)
 dpg.setup_dearpygui()
 dpg.show_viewport()
 
+    
+in_half_sec = dpg.get_total_time()
 while dpg.is_dearpygui_running():
-        
-    # REACTIVE VARIABLES
-    markers = copy.copy(resolve.active_timeline.markers)
-    frame_rate = copy.copy(resolve.active_timeline.settings.frame_rate)
-    current_timecode = copy.copy(resolve.active_timeline.timecode)
+    tf = dpg.get_total_time()
     
-    # SIMPLE
-    resolve.active_timeline.custom_settings(True)
-
-    
-    # TODO: Check Resolve is open, lock up whole interface with warning otherwise
-    # No option to dismiss dialog box. Automatically dismiss box when Resolve is opened
-    
-    # TODO: Check timeline is open, lock up whole interface with warning otherwise
-    # No option to dismiss dialog box. Automatically dismiss box when timeline is opened
-    
-    # TODO: Check timeline is same as tracked timeline, disable changes page
-    # On each timeline change, ensure custom settings are enabled. Make it so.
-        
-    routines.check_timecode_starts_at_zero(current_timecode, frame_rate)
-    routines.refresh_add_status(markers, current_timecode, frame_rate)
-    routines.refresh_commit_status(markers)
-        
     dpg.render_dearpygui_frame()
+    
+    # EVERY HALF SECOND
+    if (tf - in_half_sec) > 1:
+        in_half_sec = tf
+    
+        # REFRESH API GLOBALS
+        markers = copy.copy(resolve.active_timeline.markers)
+        frame_rate = copy.copy(resolve.active_timeline.settings.frame_rate)
+        current_timecode = copy.copy(resolve.active_timeline.timecode)
+        
+        # SIMPLE
+        resolve.active_timeline.custom_settings(True)
+        
+        # TODO: Check Resolve is open, lock up whole interface with warning otherwise
+        # No option to dismiss dialog box. Automatically dismiss box when Resolve is opened
+        
+        # TODO: Check timeline is open, lock up whole interface with warning otherwise
+        # No option to dismiss dialog box. Automatically dismiss box when timeline is opened
+        
+        # TODO: Check timeline is same as tracked timeline, disable changes page
+        # On each timeline change, ensure custom settings are enabled. Make it so.
+        
+        routines.check_timecode_starts_at_zero(current_timecode, frame_rate)
+        routines.refresh_add_status(markers, current_timecode, frame_rate)
+        routines.refresh_commit_status(markers)
+    
 
-# TODO: Fix save init file
 dpg.save_init_file(os.path.join(root_folder, "dpg.ini"))
 dpg.destroy_context()
