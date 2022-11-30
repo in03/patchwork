@@ -1,6 +1,5 @@
 
 import copy
-from datetime import datetime, timedelta
 import logging
 from pathlib import Path
 from pydavinci import davinci
@@ -11,49 +10,63 @@ import webbrowser
 import json
 import os
 from deepdiff import DeepDiff
-
+import trio
 import dearpygui.dearpygui as dpg
 
 # Logging
 logging.basicConfig(
-    level="NOTSET",
+    level="DEBUG",
     format="%(message)s",
     datefmt="[%X]",
-    handlers=[RichHandler(rich_tracebacks=True)]
+    handlers=[RichHandler(rich_tracebacks=True, markup=True)],
 )
 logger = logging.getLogger(__name__)
 
 # GLOBAL VARS
-
 app_file_path = Path(__file__)
 src_folder = app_file_path.parent.absolute()
 root_folder = src_folder.parent.absolute()
 
-# Flags
-start_timecode_check_dismissed = False
-
-# Counters
-in_3_sec = datetime.now() + timedelta(seconds=3)
-in_half_sec = datetime.now() + timedelta(seconds=0.5)
-
-
-# DearPyGUI Init
+#############################################################################
+# ALL DPG CALLS MUST BE MADE AFTER 'dpg.create_context()!
 dpg.create_context()
+#############################################################################
+
+# LOGLEVEL VALUE
+with dpg.value_registry():
+    dpg.add_string_value(tag="loglevel", default_value="INFO")
+logger.setLevel(dpg.get_value("loglevel"))
+
 dpg.set_global_font_scale(1.5)
+dpg.create_viewport(title='Patchwork 0.1.0', width=800, height=540)
+dpg.configure_app(init_file=os.path.join(root_folder, "dpg.ini"))
+dpg.set_viewport_always_top(True)
+dpg.setup_dearpygui()
+dpg.show_viewport()
 
 def save_init():
     dpg.save_init_file("dpg.ini")
-
-width, height, channels, data = dpg.load_image(os.path.join(src_folder, "logo.png"))
-with dpg.texture_registry(show=False):
-    dpg.add_static_texture(width=width, height=height, default_value=data, tag="texture_tag")
     
-import routines
-from widgets import dialog_box
+class Timer:
+    # keeps track of DPG time since last render
+    # note: frame rate speeds up by a factor of 4 to 5
+    # when manipulating the viewport
 
-# RESOLVE INIT
-resolve = davinci.Resolve()
-resolve.active_timeline.custom_settings(True)
+    def __init__(self, interval):
+        self.total_time = dpg.get_total_time()
+        self.last_total_time = dpg.get_total_time()
+        self.interval = interval
+
+    @property
+    def has_passed(self):
+        self.total_time = dpg.get_total_time()
+        delta_time = dpg.get_total_time() - self.last_total_time
+        if delta_time > self.interval:
+            self.last_total_time = self.total_time
+            return True
+        return False
+
+
 
 # RENDER PRESET
 def choose_render_preset_callback():
@@ -329,134 +342,172 @@ def commit_changes():
         job_ids.append(job_id)
         print(job_ids)
         
-
 def push_changes():
     ...
         
 def open_documentation():
     webbrowser.open_new_tab("https://github.com/in03/patchwork")
 
-with dpg.window(tag="primary_window", autosize=True):
-    dpg.set_primary_window("primary_window", True)
-   
-    # MENU BAR
-    with dpg.menu_bar():
+def init():
+    
+    print("Running")
+    # DearPyGUI Init
+    # Post context init imports
+    # These will silently crash dpg if instantiated earlier
+    global routines
+    global dialog_box
 
-        with dpg.menu(label="Settings"):
-            dpg.add_menu_item(label="Always on top", check=True, tag="menu_always_on_top", default_value=True, callback=toggle_always_on_top)
-            dpg.add_menu_item(label="Preferences")
-            
-        with dpg.menu(label="Help"):
-            dpg.add_menu_item(label="About")
-            dpg.add_menu_item(label="Docs", callback=open_documentation)
+    import routines
+    from widgets import dialog_box
+
+    # Load logo image
+    width, height, channels, data = dpg.load_image(os.path.join(src_folder, "logo.png"))
+    with dpg.texture_registry(show=False):
+        dpg.add_static_texture(width=width, height=height, default_value=data, tag="texture_tag")
+
+    # Resolve init
+    global resolve
+    resolve = davinci.Resolve()
+    resolve.active_timeline.custom_settings(True)
     
-    dpg.add_image("texture_tag") 
-        
-    dpg.add_separator()
-    dpg.add_spacer(height=20) 
-    
-                    
-    dpg.add_text("Currently untracked", tag="master_status", color=[255, 100, 100], wrap=500)
-    with dpg.tooltip("master_status"):
-        dpg.add_text(f"On the source page, select a patchwork file to track\nor render a new master file", tag="master_status_tooltip")
-        
-    dpg.add_separator()
-    dpg.add_spacer(height=20) 
-        
-    # MASTER FILE
-    with dpg.group(label="master_group", horizontal=True):
-        
-        with dpg.tab_bar(tag="tab_bar"):
-            
-            # CHANGES PAGE
-            with dpg.tab(label="Changes"):
-                dpg.add_spacer(height=20) 
-            
-                dpg.add_text("Mark changes on the active timeline to patch the master file with", wrap=500)
-                dpg.add_spacer(height=20) 
+    # Timers
+    global half_a_second
+    half_a_second = Timer(0.5)
+
+def setup_gui():
+    with dpg.window(tag="primary_window", autosize=True):
+        dpg.set_primary_window("primary_window", True)
+
+        # MENU BAR
+        with dpg.menu_bar():
+
+            with dpg.menu(label="Settings"):
+                dpg.add_menu_item(label="Always on top", check=True, tag="menu_always_on_top", default_value=True, callback=toggle_always_on_top)
+                dpg.add_menu_item(label="Preferences")
                 
+            with dpg.menu(label="Help"):
+                dpg.add_menu_item(label="About")
+                dpg.add_menu_item(label="Docs", callback=open_documentation)
+        
+        dpg.add_image("texture_tag") 
+            
+        dpg.add_separator()
+        dpg.add_spacer(height=20) 
+        
+                        
+        dpg.add_text("Currently untracked", tag="master_status", color=[255, 100, 100], wrap=500)
+        with dpg.tooltip("master_status"):
+            dpg.add_text(f"On the source page, select a patchwork file to track\nor render a new master file", tag="master_status_tooltip")
+            
+        dpg.add_separator()
+        dpg.add_spacer(height=20) 
+            
+        # MASTER FILE
+        with dpg.group(label="master_group", horizontal=True):
+            
+            with dpg.tab_bar(tag="tab_bar"):
+                
+                # CHANGES PAGE
+                with dpg.tab(label="Changes"):
+                    dpg.add_spacer(height=20) 
+                
+                    dpg.add_text("Mark changes on the active timeline to patch the master file with", wrap=500)
+                    dpg.add_spacer(height=20) 
+                    
 
-                with dpg.group(tag="add_group", horizontal=True):
-                    
-                    # ADD BUTTON
-                    dpg.add_button(label="Add", tag="Add", callback=add_change)
-                    
-                    # CLEAR BUTTON
-                    dpg.add_button(label="Clear Changes", tag="clear_changes", callback=clear_changes)
-                    with dpg.tooltip("clear_changes"):
-                        dpg.add_text("Clear all of Patchwork's ranged-markers\nfrom the active timeline")
+                    with dpg.group(tag="add_group", horizontal=True):
                         
-                dpg.add_text("N/A", tag="current_timecode_display", color=[255, 150, 0])
+                        # ADD BUTTON
+                        dpg.add_button(label="Add", tag="Add", callback=add_change)
                         
-                dpg.add_separator()
-                dpg.add_spacer(height=20)
+                        # CLEAR BUTTON
+                        dpg.add_button(label="Clear Changes", tag="clear_changes", callback=clear_changes)
+                        with dpg.tooltip("clear_changes"):
+                            dpg.add_text("Clear all of Patchwork's ranged-markers\nfrom the active timeline")
                             
-                # COMMIT BUTTON
-                dpg.add_text("Commit changes and create render jobs", wrap=500)
-                with dpg.group(tag="commit_group"):
-                    dpg.add_text("No changes to commit", tag="commit_status", color=[255, 100, 100], wrap=500)
-                    dpg.add_button(label="Commit", tag="Commit", callback=commit_changes)
-                    
-                dpg.add_separator()
-                dpg.add_spacer(height=20) 
-                    
-                # PUSH BUTTON
-                dpg.add_button(label="Push", tag="Push", callback=push_changes)
-                with dpg.tooltip("Push"):
-                    dpg.add_text("Render and merge changes")
+                    dpg.add_text("N/A", tag="current_timecode_display", color=[255, 150, 0])
+                            
+                    dpg.add_separator()
+                    dpg.add_spacer(height=20)
+                                
+                    # COMMIT BUTTON
+                    dpg.add_text("Commit changes and create render jobs", wrap=500)
+                    with dpg.group(tag="commit_group"):
+                        dpg.add_text("No changes to commit", tag="commit_status", color=[255, 100, 100], wrap=500)
+                        dpg.add_button(label="Commit", tag="Commit", callback=commit_changes)
                         
-                dpg.add_separator()
-                dpg.add_spacer(height=20) 
-            
+                    dpg.add_separator()
+                    dpg.add_spacer(height=20) 
+                        
+                    # PUSH BUTTON
+                    dpg.add_button(label="Push", tag="Push", callback=push_changes)
+                    with dpg.tooltip("Push"):
+                        dpg.add_text("Render and merge changes")
+                            
+                    dpg.add_separator()
+                    dpg.add_spacer(height=20) 
+                
+                        
+                    dpg.add_spacer(height=20) 
                     
-                dpg.add_spacer(height=20) 
-                
-            # SOURCE PAGE
-            with dpg.tab(label="Source"):
-                
-                dpg.add_spacer(height=20)
-                dpg.add_text("Track existing sidecar file")
+                # SOURCE PAGE
+                with dpg.tab(label="Source"):
                     
-                with dpg.group(tag="file_selector", horizontal=True):
-                    dpg.add_button(label="Browse", tag="link_browse_button", callback=lambda: dpg.show_item("track_file_dialog"))
-                    dpg.add_input_text(default_value="", tag="track_file_input")
-                dpg.add_button(label="Link", tag="link_patchfile", callback=lambda: dpg.show_item("track_file_dialog"), show=False)
-                
-                dpg.add_spacer(height=20)
-                dpg.add_text("Render new master and regenerate sidecar file")
-                with dpg.group(tag="render_buttons", horizontal=True):
-                    dpg.add_button(label="Browse", tag="render_browse_button", callback=lambda: dpg.show_item("render_file_dialog"))
-                    dpg.add_button(label="Choose render preset", tag="choose_render_preset_button", callback=lambda: choose_render_preset())
-                    dpg.add_button(label="Render", tag="render_start_button", callback=lambda: dialog_box.prompt("TODO: Render!"))
-                dpg.add_spacer(height=20) 
-                
-    dpg.add_separator()
-    dpg.add_spacer(height=20) 
-  
-dpg.create_viewport(title='Patchwork 0.1.0', width=800, height=540)
-dpg.configure_app(init_file=os.path.join(root_folder, "dpg.ini"))
-dpg.set_viewport_always_top(True)
-dpg.setup_dearpygui()
-dpg.show_viewport()
+                    dpg.add_spacer(height=20)
+                    dpg.add_text("Track existing sidecar file")
+                        
+                    with dpg.group(tag="file_selector", horizontal=True):
+                        dpg.add_button(label="Browse", tag="link_browse_button", callback=lambda: dpg.show_item("track_file_dialog"))
+                        dpg.add_input_text(default_value="", tag="track_file_input")
+                    dpg.add_button(label="Link", tag="link_patchfile", callback=lambda: dpg.show_item("track_file_dialog"), show=False)
+                    
+                    dpg.add_spacer(height=20)
+                    dpg.add_text("Render new master and regenerate sidecar file")
+                    with dpg.group(tag="render_buttons", horizontal=True):
+                        dpg.add_button(label="Browse", tag="render_browse_button", callback=lambda: dpg.show_item("render_file_dialog"))
+                        dpg.add_button(label="Choose render preset", tag="choose_render_preset_button", callback=lambda: choose_render_preset())
+                        dpg.add_button(label="Render", tag="render_start_button", callback=lambda: dialog_box.prompt("TODO: Render!"))
+                    dpg.add_spacer(height=20) 
+                    
+        dpg.add_separator()
+        dpg.add_spacer(height=20) 
 
-    
-in_half_sec = dpg.get_total_time()
-while dpg.is_dearpygui_running():
-    tf = dpg.get_total_time()
-    
+async def render():
+        
     dpg.render_dearpygui_frame()
+    logger.debug(f"[magenta]{dpg.get_frame_count()}")
     
-    # EVERY HALF SECOND
-    if (tf - in_half_sec) > 1:
-        in_half_sec = tf
-    
-        # REFRESH API GLOBALS
-        markers = copy.copy(resolve.active_timeline.markers)
-        frame_rate = copy.copy(resolve.active_timeline.settings.frame_rate)
+    if half_a_second.has_passed:
+        
+        # Direct API results only!!! Calculations should be performed as a routine with caching
+        # Copy to prevent each chained function from calling the API
+        global current_markers
+        current_markers = copy.copy(resolve.active_timeline.markers)
+        
+        global current_frame_rate
+        current_frame_rate = copy.copy(resolve.active_timeline.settings.frame_rate)
+        
+        global current_timecode
         current_timecode = copy.copy(resolve.active_timeline.timecode)
         
+        # Weird single frame offset
+        global current_frame
+        current_frame = Timecode(current_frame_rate, current_timecode).frames
+        if current_frame:
+            current_frame -=1 
+        else:
+            current_frame = -1
+    
+        
         # SIMPLE
+        logger.debug("[magenta]Ensure custom timeline settings enabled")
         resolve.active_timeline.custom_settings(True)
+        
+        # ROUTINES SHOULD ALL BE ASYNC
+        logger.debug("[magenta]Running complex routines")
+        await routines.check_timecode_starts_at_zero(current_frame_rate, current_timecode)
+        await routines.refresh_add_status(current_markers, current_timecode, current_frame)
+        await routines.refresh_commit_status(current_markers)
         
         # TODO: Check Resolve is open, lock up whole interface with warning otherwise
         # No option to dismiss dialog box. Automatically dismiss box when Resolve is opened
@@ -466,11 +517,27 @@ while dpg.is_dearpygui_running():
         
         # TODO: Check timeline is same as tracked timeline, disable changes page
         # On each timeline change, ensure custom settings are enabled. Make it so.
-        
-        routines.check_timecode_starts_at_zero(current_timecode, frame_rate)
-        routines.refresh_add_status(markers, current_timecode, frame_rate)
-        routines.refresh_commit_status(markers)
-    
+                
+        await trio.sleep(0)
 
-dpg.save_init_file(os.path.join(root_folder, "dpg.ini"))
-dpg.destroy_context()
+async def main():
+    
+    # SETUP
+    logger.debug("[magenta]Initialising...")
+    init()
+    setup_gui()
+    logger.debug("[magenta]Ready!")
+    
+    # LOOP
+    logger.debug("[magenta]Starting render cycle!")
+    while dpg.is_dearpygui_running():
+        async with trio.open_nursery() as nursery: 
+            nursery.start_soon(render)
+    
+    # EXIT
+    logger.debug("[magenta]Exiting!")
+    dpg.save_init_file(os.path.join(root_folder, "dpg.ini"))
+    dpg.destroy_context()
+
+if __name__ == "__main__":
+    trio.run(main)

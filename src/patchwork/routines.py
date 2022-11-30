@@ -1,43 +1,57 @@
 from timecode import Timecode
 from dearpygui import dearpygui as dpg
-from pydavinci.wrappers.marker import MarkerCollection
+from pydavinci.wrappers.marker import MarkerCollection, Marker
 from widgets import dialog_box
-
 import trio
+import logging
 
-def refresh_add_status(markers:MarkerCollection, current_timecode:str, frame_rate:float, refresh_rate:float=0.5):
-    
-    # await trio.sleep(refresh_rate)
+logger = logging.getLogger(__name__)
+logger.setLevel(dpg.get_value("loglevel"))
 
-    current_frame = Timecode(frame_rate, current_timecode).frames
-    current_marker = None
+async def get_marker_at_playhead(current_markers:MarkerCollection, current_frame:int) -> Marker|None:
     
+    logger.debug("[magenta]Checking for marker at playhead")
+    
+    marker_at_playhead = None
     if current_frame:
-        
-        current_frame -=1 # Single frame offset for some reason
-        current_marker = [x for x in markers if current_frame >= x.frameid and current_frame < (x.frameid + x.duration)]
     
-    if current_marker:
+        playhead_markers = [x for x in current_markers if current_frame >= x.frameid and current_frame < (x.frameid + x.duration)]
         
-        assert len(current_marker) == 1
-        current_marker = current_marker[0]
+        if len(playhead_markers) > 1:
+            raise ValueError(f"Multiple overlapping Patchwork markers are disallowed!\n{[str(x) for x in playhead_markers]}")
+        
+        if len(playhead_markers) == 1:
+            marker_at_playhead = playhead_markers[0]
+        
+    await trio.sleep(0)
+    return marker_at_playhead 
+
+async def refresh_add_status(current_markers:MarkerCollection, current_timecode:str, current_frame:int):
+    
+    logger.debug("[magenta]Refreshing 'Add' status")
+            
+    marker_at_playhead = await get_marker_at_playhead(current_markers, current_frame)
+    if marker_at_playhead:
         
         #TODO: Set flag to allow prompting "overwrite"
         
-        if not current_marker.customdata == "patchwork_marker":
+        if not marker_at_playhead.customdata == "patchwork_marker":
             
             dpg.set_value("current_timecode_display", f"On unsupported marker")
             dpg.configure_item("current_timecode_display", color=[250, 0, 0])  
             
         else:
-            dpg.set_value("current_timecode_display", f"On marker: '{current_marker.name}'")
+            dpg.set_value("current_timecode_display", f"On marker: '{marker_at_playhead.name}'")
             dpg.configure_item("current_timecode_display", color=[0, 255, 0])
         
     else:
         dpg.set_value("current_timecode_display", f"{current_timecode} | {current_frame}")
         dpg.configure_item("current_timecode_display", color=[50, 150, 255])
+            
+    await trio.sleep(0)
 
-def check_timecode_starts_at_zero(current_timecode:str, frame_rate:float, refresh_rate:float=0.5):
+async def check_timecode_starts_at_zero(current_frame_rate:float, current_timecode:str):
+    
     """
     Check that the Resolve timeline timecode starts at 00:00:00
     
@@ -51,7 +65,7 @@ def check_timecode_starts_at_zero(current_timecode:str, frame_rate:float, refres
         start_timecode_check_dismissed (bool): The flag to check for dialog box dismissal
     """
     
-    # await trio.sleep(refresh_rate)
+    logger.debug("[magenta]Check timecode starts at zero")
     
     dismissed = dpg.get_value("zero_timecode_warning_dismissed")
     if dismissed is None:
@@ -60,21 +74,25 @@ def check_timecode_starts_at_zero(current_timecode:str, frame_rate:float, refres
         
     if not dismissed:  
         
-        if Timecode(frame_rate, current_timecode).hrs >= 1:  
+        if Timecode(current_frame_rate, current_timecode).hrs >= 1:  
             dialog_box.prompt(
                 "Hey! Does your timeline timecode start at 01:00:00? If so, please set it to 00:00:00. "
                 "Resolve's API has a glitch that causes markers to appear an hour later on the timeline. "
                 "If not, nevermind."
             )
             dpg.set_value("zero_timecode_warning_dismissed", True)
+            
+    await trio.sleep(0)
 
-def refresh_commit_status(markers:MarkerCollection, refresh_rate:float=0.5):
+async def refresh_commit_status(current_markers:MarkerCollection):
+    
+    logger.debug("[magenta]Refreshing 'Commit' status")
     
     committed_changes = []
     uncommitted_changes = []
     invalid_changes = []
 
-    for x in markers:
+    for x in current_markers:
         if x.customdata != "patchwork_marker":
             continue
         if x.color == "Green":
@@ -109,3 +127,5 @@ def refresh_commit_status(markers:MarkerCollection, refresh_rate:float=0.5):
     else:
         dpg.configure_item("commit_status", color=[255, 150, 0])
         dpg.set_value("commit_status", "N/A")
+            
+    await trio.sleep(0)
