@@ -47,27 +47,6 @@ dpg.show_viewport()
 def save_init():
     dpg.save_init_file("dpg.ini")
     
-class Timer:
-    # keeps track of DPG time since last render
-    # note: frame rate speeds up by a factor of 4 to 5
-    # when manipulating the viewport
-
-    def __init__(self, interval):
-        self.total_time = dpg.get_total_time()
-        self.last_total_time = dpg.get_total_time()
-        self.interval = interval
-
-    @property
-    def has_passed(self):
-        self.total_time = dpg.get_total_time()
-        delta_time = dpg.get_total_time() - self.last_total_time
-        if delta_time > self.interval:
-            self.last_total_time = self.total_time
-            return True
-        return False
-
-
-
 # RENDER PRESET
 def choose_render_preset_callback():
     
@@ -372,7 +351,7 @@ def init():
     
     # Timers
     global half_a_second
-    half_a_second = Timer(0.5)
+    half_a_second = routines.Timer(0.5)
 
 def setup_gui():
     with dpg.window(tag="primary_window", autosize=True):

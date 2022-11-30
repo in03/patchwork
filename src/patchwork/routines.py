@@ -8,6 +8,26 @@ import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(dpg.get_value("loglevel"))
 
+
+class Timer:
+    # keeps track of DPG time since last render
+    # note: frame rate speeds up by a factor of 4 to 5
+    # when manipulating the viewport
+
+    def __init__(self, interval):
+        self.total_time = dpg.get_total_time()
+        self.last_total_time = dpg.get_total_time()
+        self.interval = interval
+
+    @property
+    def has_passed(self):
+        self.total_time = dpg.get_total_time()
+        delta_time = dpg.get_total_time() - self.last_total_time
+        if delta_time > self.interval:
+            self.last_total_time = self.total_time
+            return True
+        return False
+
 async def get_marker_at_playhead(current_markers:MarkerCollection, current_frame:int) -> Marker|None:
     
     logger.debug("[magenta]Checking for marker at playhead")
