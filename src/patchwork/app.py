@@ -479,9 +479,6 @@ def init():
 
     global current_timecode
     current_timecode = copy.copy(resolve.active_timeline.timecode)
-
-    global current_frame_rate
-    current_frame_rate = copy.copy(resolve.active_timeline.settings.frame_rate)
     
     global refresh_now
     refresh_now = False
@@ -687,20 +684,9 @@ async def render():
             
             # TODO: Check timeline is same as tracked timeline, disable changes page
             # On each timeline change, ensure custom settings are enabled. Make it so.
-                
-                current_frame_rate = copy.copy(resolve.active_timeline.settings.frame_rate)
-                
-                logger.debug("[magenta]Ensure custom timeline settings enabled")
-                resolve.active_timeline.custom_settings(True)
-                await routines.check_timecode_starts_at_zero(current_frame_rate, current_timecode)
-                
+                                
             # RUN EVERY HALF SECOND REGARDLESS OF ENVIRONMENT STATE
             current_timecode = copy.copy(resolve.active_timeline.timecode)
-            
-
-            # Weird single frame offset
-            # TODO: Fix type error
-            current_frame = get_current_frame(current_frame_rate, current_timecode)  #type: ignore
 
             logger.debug("[magenta]Running complex routines")
             await routines.refresh_add_status(markers, current_timecode, current_frame)
