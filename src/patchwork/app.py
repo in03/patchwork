@@ -3,7 +3,7 @@ import copy
 import logging
 from pathlib import Path
 from pydavinci import davinci
-from pydavinci.wrappers.marker import Marker
+from pydavinci.wrappers.marker import Marker, MarkerCollection
 from timecode import Timecode
 from rich.logging import RichHandler
 import webbrowser
@@ -51,18 +51,19 @@ def save_init():
 def choose_render_preset_callback():
     
     dpg.configure_item("preset_picker", show=False)
-    chosen_render_preset = dpg.get_value("preset_radio")
+    chosen_render_preset = dpg.get_value("preset_combo")
     print(f"Chosen render preset {chosen_render_preset}")
+    dpg.delete_item("preset_picker")
      
 def choose_render_preset():
 
-    with dpg.window(label="Render Presets", tag="preset_picker", modal=True):
-        dpg.add_radio_button(resolve.project.render_presets, tag="preset_radio")
+    with dpg.window(label="Render Presets", tag="preset_picker", modal=True, autosize=True):
+        dpg.add_combo(resolve.project.render_presets, tag="preset_combo", default_value="-- Choose Render Preset --")
         dpg.add_button(label="Confirm", callback=choose_render_preset_callback)
             
 def load_render_preset() -> bool:
     
-    if not dpg.get_value("preset_radio"):
+    if not dpg.get_value("preset_combo"):
         dialog_box.prompt("No render preset chosen. Please choose one before loading")
         return False
         
@@ -74,48 +75,95 @@ def load_render_preset() -> bool:
 
 class PatchFile():
     
-    def __init__(self):
+    def __init__(self, patchfile:str):
         
         self.resolve = davinci.Resolve()
-        self.patchfile = None
+        self.patchfile = patchfile
+        self.patchfile_data = {}
+        self.current_settings = self.get_current_settings()
         
-        project_settings = self.resolve.project.get_setting()
-        timeline_settings = self.resolve.active_timeline.get_setting()
+    def get_current_settings(self) -> dict:
         
-        self.current_settings = {
-            "project_settings":project_settings, 
-            "timeline_settings":timeline_settings
-        }
-        
-    def load(self, patchfile_path):
-        with open(patchfile_path) as patchfile:
-            self.patchfile = json.loads(patchfile.read())
-        
-        settings_diff = DeepDiff(self.current_settings, self.patchfile)
-        if settings_diff:
-            
-            print(settings_diff)
-            dialog_box.prompt(f"Looks like settings have changed!\n{settings_diff}")
-            
-    def new(self, patchfile_path):
-            
         project = self.resolve.project
         timeline = self.resolve.active_timeline
         project_settings = project.get_setting()
         timeline_settings = timeline.get_setting()
-        render_settings = project.current_render_format_and_codec        
+        render_settings = project.current_render_format_and_codec  
         
         data = {
-            "project_settings":project_settings,
-            "timeline_settings":timeline_settings,
-            "render_settings":render_settings,
+            "project_name": project.name,
+            "timeline_name": timeline.name,
+            "settings": {
+                "project_settings":project_settings,
+                "timeline_settings":timeline_settings,
+                "render_settings":render_settings,
+            }
         }
+        return data
+    
+    def get_changes_data(self) -> dict:
+        
+        timeline = self.resolve.active_timeline
+        changes = [x for x in timeline.markers if x.customdata == "patchwork_marker"]
+        
+        data = {
+            "changes": changes,
+        }
+        return data
+    
+    def compare(self):
+
+        if self.current_settings["project_name"] != self.patchfile_data["project_name"]:
+            dialog_box.prompt(
+                f"Looks like the tracked file is for a different project: '{self.patchfile_data['project_name']}'\n"
+                "Please load the correct patchfile for this project, or create a new one."
+            )
+            return
+        
+        if self.current_settings["timeline_name"] != self.patchfile_data["timeline_name"]:
+            dialog_box.prompt(
+                f"Looks like the tracked file is for a different timeline: '{self.patchfile_data['timeline_name']}'\n"
+                "Please load the correct patchfile for this timeline, or create a new one."
+            )
+            return
+        
+        settings_diff = DeepDiff(self.current_settings["settings"], self.patchfile_data["settings"])
+        if settings_diff:
+            
+            print(settings_diff)
+            dialog_box.prompt(
+                "Looks like project settings have been altered since the master file was rendered!\n"
+                "You will need to render a master file again, since consistent results cannot be guaranteed with different settings\n"
+                f"{settings_diff}"
+            )
+            return
+    
+    def load(self):
+        
+        with open(self.patchfile) as patchfile:
+            self.patchfile_data = json.loads(patchfile.read())
+            return self.patchfile_data
+     
+    def update(self, writable):
+        
+        if not self.patchfile:
+            logger.error("[red]No patchfile chosen")
+            return None
+        
+        existing_data = self.load()
+        with open(self.patchfile, "w") as json_file:
+            if existing_data:
+                writable.update(existing_data)
+            return json.dump(writable, json_file)
+            
+    def new(self, patchfile_path):
+            
+        data = self.get_current_settings()
         
         try:
             with open(patchfile_path + ".patch", "w") as patchfile:
                 patchfile.write(json.dumps(data, sort_keys=True))
         except PermissionError:
-            
             dialog_box.prompt("You don't have write permissions to this folder. Try another one.")
        
 # File Dialog
@@ -136,6 +184,10 @@ class TrackPatchfile():
         
             dpg.add_file_extension(".patch", color=(255, 255, 0, 255))
             dpg.add_file_extension(".*")
+        
+        self.chosen_file = ""
+        self.chosen_filename = ""
+        self.chosen_filepath = ""
            
     def callback(self, sender:str, app_data:dict):
         print('OK was clicked.')
@@ -146,19 +198,20 @@ class TrackPatchfile():
             dialog_box.prompt("No selection was made!")
             return
         
-        chosen_filepath = app_data['file_path_name']
-        chosen_file = os.path.basename(chosen_filepath)
-        chosen_filename = os.path.splitext(chosen_file)[0]
+        self.chosen_filepath = app_data['file_path_name']
+        self.chosen_file = os.path.basename(self.chosen_filepath)
+        self.chosen_filename = os.path.splitext(self.chosen_file)[0]
         
         dpg.configure_item("master_status", color=[100, 255, 100])
         dpg.set_value("master_status", f"Tracking")
-        dpg.set_value("master_status_tooltip", f"Tracking master file:\n{chosen_filepath}")
-        dpg.set_value("track_file_input", chosen_filepath)
+        dpg.set_value("master_status_tooltip", f"Tracking master file:\n{self.chosen_filepath}")
+        dpg.set_value("track_file_input", self.chosen_filepath)
         
     def cancel_callback(self, sender, app_data):
         print('Cancel was clicked.')
         print("Sender: ", sender)
-        print("App Data: ", app_data)
+        print("App Data: ", app_data)       
+
 
 # File Dialog
 class RenderPatchFile():
@@ -243,20 +296,46 @@ def create_marker():
 
     timeline = resolve.active_timeline
     framerate = resolve.active_timeline.settings.frame_rate
+    patchwork_markers:list[Marker]|None = timeline.markers.find_all("patchwork_marker")
+    
     min_duration = int(framerate) * 2
     tc = Timecode(framerate=framerate, start_timecode=timeline.timecode)
     print(f"Timecode: {timeline.timecode} Frames: {tc.frames} Framerate: {framerate}")
     assert tc.frames is not None
     
+    new_marker_start = tc.frames -1
+    new_marker_end = new_marker_start + min_duration
+    
+    # Check if any patchwork markers overlap
+    if patchwork_markers:
+        for x in patchwork_markers:
+            
+            existing_marker_start = x.frameid
+            existing_marker_end = x.frameid + x.duration
+            
+            logger.debug(f"[magenta]Attempt marker @ {new_marker_start} -> {new_marker_end}")
+            
+            # Check overlap between new marker and existing marker ranges
+            nm_range = range(new_marker_start, new_marker_end)
+            em_range = range(existing_marker_start, existing_marker_end)
+            overlap = bool(range(max(nm_range[0], em_range[0]), min(nm_range[-1], em_range[-1])+1))
+            
+            if overlap:
+                dialog_box.prompt(
+                    "Whoops, sorry. Changes can't overlap!\n"
+                    f"A change added here would overlap with '{x.name}'"
+                )
+                return
+    
     if not resolve.active_timeline.markers.add(
-        tc.frames - 1,
+        new_marker_start,
         "Purple", 
         duration=min_duration, 
         name=f"Change - {get_next_free_marker_num()}", 
         customdata="patchwork_marker"
     ):
-        return False
-    return True
+        dialog_box.prompt("Sorry, Resolve says no. Maybe there's already a marker there?")
+        return
 
 def clear_markers():
     """
@@ -273,31 +352,38 @@ def clear_markers():
 
 # Commands
 def add_change():
+    
+    global refresh_now
       
-    if not create_marker():
-        dialog_box.prompt("Looks like there's already a marker there!")
-        return
+    create_marker()
 
+    print("Fresh")
+    refresh_now = True
+    
 def clear_changes():
+    
+    global refresh_now
     
     if not clear_markers():
         dialog_box.prompt("Oops, no changes to clear.")
         return
-
+    
+    refresh_now = True
+    
 def commit_changes():
     
-    project = resolve.project
     timeline = resolve.active_timeline
     framerate = timeline.settings.frame_rate
     min_duration = int(framerate) * 2
     markers = timeline.markers.find_all("patchwork_marker")
     
-    if not markers:
-        dialog_box.prompt(
-            "No changes have been marked in the timeline.\n"
-            "Please mark some changes first",
-        )
-        return
+    patchfile = PatchFile(track_patch_file.chosen_filepath)
+    saved_settings = patchfile.load()
+    print(saved_settings)
+    # compare_settings = patchfile.compare()
+    
+    assert markers
+    
     invalid_markers = [x for x in markers if x.duration < min_duration]
     if invalid_markers:
         dialog_box.prompt(
@@ -306,8 +392,21 @@ def commit_changes():
         )
         return
     
-    job_ids = []
+    # TODO: Check for overlapping markers
+    
     for x in markers:
+        x.color = "Green"
+        
+    patchfile.update(markers)
+    
+        
+def push_changes():
+    
+    project = resolve.project
+    timeline = resolve.active_timeline
+    
+    job_ids = []
+    for x in committed_markers:
         if not load_render_preset():
             return
         project.set_render_settings(
@@ -320,9 +419,6 @@ def commit_changes():
         job_id = project.add_renderjob()
         job_ids.append(job_id)
         print(job_ids)
-        
-def push_changes():
-    ...
         
 def open_documentation():
     webbrowser.open_new_tab("https://github.com/in03/patchwork")
@@ -349,11 +445,37 @@ def init():
     resolve = davinci.Resolve()
     resolve.active_timeline.custom_settings(True)
     
+    global current_frame_rate
+    current_frame_rate = copy.copy(resolve.active_timeline.settings.frame_rate)
+    
+    global refresh_now
+    refresh_now = False
+    
+    # Item enabled flags
+    
+    global committed_markers
+    committed_markers = []
+    
+    global new_changes_exist
+    new_changes_exist = False
+    
+    global render_preset_chosen
+    render_preset_chosen = False    
+    
     # Timers
     global half_a_second
     half_a_second = routines.Timer(0.5)
 
 def setup_gui():
+    
+    with dpg.theme(tag="main_theme"):
+        with dpg.theme_component(dpg.mvButton, enabled_state=False):
+            dpg.add_theme_color(dpg.mvThemeCol_Text, (122, 122, 122))
+            # dpg.mvThemeCol_ButtonHovered
+        
+        dpg.bind_theme("main_theme")
+
+    
     with dpg.window(tag="primary_window", autosize=True):
         dpg.set_primary_window("primary_window", True)
 
@@ -397,11 +519,11 @@ def setup_gui():
                     with dpg.group(tag="add_group", horizontal=True):
                         
                         # ADD BUTTON
-                        dpg.add_button(label="Add", tag="Add", callback=add_change)
+                        dpg.add_button(label="Add", tag="add_button", callback=add_change)
                         
                         # CLEAR BUTTON
-                        dpg.add_button(label="Clear Changes", tag="clear_changes", callback=clear_changes)
-                        with dpg.tooltip("clear_changes"):
+                        dpg.add_button(label="Clear Changes", tag="clear_changes_button", callback=clear_changes)
+                        with dpg.tooltip("clear_changes_button"):
                             dpg.add_text("Clear all of Patchwork's ranged-markers\nfrom the active timeline")
                             
                     dpg.add_text("N/A", tag="current_timecode_display", color=[255, 150, 0])
@@ -413,14 +535,14 @@ def setup_gui():
                     dpg.add_text("Commit changes and create render jobs", wrap=500)
                     with dpg.group(tag="commit_group"):
                         dpg.add_text("No changes to commit", tag="commit_status", color=[255, 100, 100], wrap=500)
-                        dpg.add_button(label="Commit", tag="Commit", callback=commit_changes)
+                        dpg.add_button(label="Commit", tag="commit_button", callback=commit_changes)
                         
                     dpg.add_separator()
                     dpg.add_spacer(height=20) 
                         
                     # PUSH BUTTON
-                    dpg.add_button(label="Push", tag="Push", callback=push_changes)
-                    with dpg.tooltip("Push"):
+                    dpg.add_button(label="Push", tag="push_button", callback=push_changes)
+                    with dpg.tooltip("push_button"):
                         dpg.add_text("Render and merge changes")
                             
                     dpg.add_separator()
@@ -428,7 +550,7 @@ def setup_gui():
                 
                         
                     dpg.add_spacer(height=20) 
-                    
+                
                 # SOURCE PAGE
                 with dpg.tab(label="Source"):
                     
@@ -444,58 +566,92 @@ def setup_gui():
                     dpg.add_text("Render new master and regenerate sidecar file")
                     with dpg.group(tag="render_buttons", horizontal=True):
                         dpg.add_button(label="Browse", tag="render_browse_button", callback=lambda: dpg.show_item("render_file_dialog"))
-                        dpg.add_button(label="Choose render preset", tag="choose_render_preset_button", callback=lambda: choose_render_preset())
-                        dpg.add_button(label="Render", tag="render_start_button", callback=lambda: dialog_box.prompt("TODO: Render!"))
+                        dpg.add_button(label="Choose render preset", tag="choose_render_preset_button", enabled=False, callback=lambda: choose_render_preset())
+                        dpg.add_button(label="Render", tag="render_start_button", enabled=False, callback=lambda: dialog_box.prompt("TODO: Render!"))
                     dpg.add_spacer(height=20) 
                     
         dpg.add_separator()
         dpg.add_spacer(height=20) 
 
+async def resolve_is_ready():
+    routines.get_environment_state()
+    
+    if dpg.get_value("resolve_is_open") == False:
+        dialog_box.prompt("Resolve is not running! Waiting...", no_close=True)
+        await trio.sleep(0)
+        return False
+
+    if dpg.get_value("project_is_open") == False:
+        dialog_box.prompt("No project is open! Waiting...", no_close=True)
+        await trio.sleep(0)
+        return False
+            
+    if dpg.get_value("timeline_is_open") == False:
+        dialog_box.prompt("No timeline is open! Waiting...", no_close=True)
+        await trio.sleep(0)
+        return False
+        
+    await trio.sleep(0)
+    return True
+
 async def render():
+    
+    global refresh_now
         
     dpg.render_dearpygui_frame()
     logger.debug(f"[magenta]{dpg.get_frame_count()}")
     
-    if half_a_second.has_passed:
+    if half_a_second.has_passed or refresh_now:
+        refresh_now = False
         
-        # Direct API results only!!! Calculations should be performed as a routine with caching
-        # Copy to prevent each chained function from calling the API
-        global current_markers
-        current_markers = copy.copy(resolve.active_timeline.markers)
+        if resolve_is_ready:
+            
+            # RUN ONLY IF PROJECT OR TIMELINE HAS CHANGED
+            if dpg.get_value("environment_has_changed"):
         
-        global current_frame_rate
-        current_frame_rate = copy.copy(resolve.active_timeline.settings.frame_rate)
+                global current_frame_rate
+                current_frame_rate = copy.copy(resolve.active_timeline.settings.frame_rate)
+                
+                # SIMPLE
+                logger.debug("[magenta]Ensure custom timeline settings enabled")
+                resolve.active_timeline.custom_settings(True)
+                
+            # Direct API results only!!! Calculations should be performed as a routine with caching
+            # Copy to prevent each chained function from calling the API
+            global current_markers
+            current_markers = copy.copy(resolve.active_timeline.markers)
+            patchwork_markers = ([x for x in current_markers if x.customdata == "patchwork_marker"])
+
+            if not patchwork_markers:
+                dpg.configure_item("clear_changes_button", enabled=False)
+            else:
+                dpg.configure_item("clear_changes_button", enabled=True)
+                        
+            global current_timecode
+            current_timecode = copy.copy(resolve.active_timeline.timecode)
+            
+            # Weird single frame offset
+            global current_frame
+            current_frame = Timecode(current_frame_rate, current_timecode).frames
+            if current_frame:
+                current_frame -=1 
+            else:
+                current_frame = -1
         
-        global current_timecode
-        current_timecode = copy.copy(resolve.active_timeline.timecode)
-        
-        # Weird single frame offset
-        global current_frame
-        current_frame = Timecode(current_frame_rate, current_timecode).frames
-        if current_frame:
-            current_frame -=1 
-        else:
-            current_frame = -1
-    
-        
-        # SIMPLE
-        logger.debug("[magenta]Ensure custom timeline settings enabled")
-        resolve.active_timeline.custom_settings(True)
-        
-        # ROUTINES SHOULD ALL BE ASYNC
-        logger.debug("[magenta]Running complex routines")
-        await routines.check_timecode_starts_at_zero(current_frame_rate, current_timecode)
-        await routines.refresh_add_status(current_markers, current_timecode, current_frame)
-        await routines.refresh_commit_status(current_markers)
-        
-        # TODO: Check Resolve is open, lock up whole interface with warning otherwise
-        # No option to dismiss dialog box. Automatically dismiss box when Resolve is opened
-        
-        # TODO: Check timeline is open, lock up whole interface with warning otherwise
-        # No option to dismiss dialog box. Automatically dismiss box when timeline is opened
-        
-        # TODO: Check timeline is same as tracked timeline, disable changes page
-        # On each timeline change, ensure custom settings are enabled. Make it so.
+            # ROUTINES SHOULD ALL BE ASYNC
+            logger.debug("[magenta]Running complex routines")
+            await routines.check_timecode_starts_at_zero(current_frame_rate, current_timecode)
+            await routines.refresh_add_status(current_markers, current_timecode, current_frame)
+            await routines.refresh_commit_status(current_markers)
+            
+            # TODO: Check Resolve is open, lock up whole interface with warning otherwise
+            # No option to dismiss dialog box. Automatically dismiss box when Resolve is opened
+            
+            # TODO: Check timeline is open, lock up whole interface with warning otherwise
+            # No option to dismiss dialog box. Automatically dismiss box when timeline is opened
+            
+            # TODO: Check timeline is same as tracked timeline, disable changes page
+            # On each timeline change, ensure custom settings are enabled. Make it so.
                 
         await trio.sleep(0)
 
