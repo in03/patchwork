@@ -6,6 +6,7 @@ from pydavinci.exceptions import TimelineNotFound
 from widgets import dialog_box
 import trio
 import logging
+import copy
 
 logger = logging.getLogger(__name__)
 logger.setLevel(dpg.get_value("loglevel"))

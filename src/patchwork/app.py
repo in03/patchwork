@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from pydavinci import davinci
 from pydavinci.wrappers.marker import Marker, MarkerCollection
+from pydavinci.wrappers.timeline import Timeline
 from timecode import Timecode
 from rich.logging import RichHandler
 import webbrowser
@@ -15,7 +16,7 @@ import dearpygui.dearpygui as dpg
 
 # Logging
 logging.basicConfig(
-    level="DEBUG",
+    level="INFO",
     format="%(message)s",
     datefmt="[%X]",
     handlers=[RichHandler(rich_tracebacks=True, markup=True)],
@@ -35,7 +36,7 @@ dpg.create_context()
 # LOGLEVEL VALUE
 with dpg.value_registry():
     dpg.add_string_value(tag="loglevel", default_value="INFO")
-logger.setLevel(dpg.get_value("loglevel"))
+# logger.setLevel(dpg.get_value("loglevel"))
 
 dpg.set_global_font_scale(1.5)
 dpg.create_viewport(title='Patchwork 0.1.0', width=800, height=540)
@@ -261,6 +262,12 @@ track_patch_file = TrackPatchfile()
 render_patch_file = RenderPatchFile()
 
 # Helpers
+def should_refresh_now():
+    global force_refresh
+    if force_refresh:
+        force_refresh = False
+        return True
+
 def get_next_free_marker_num():
     """Get the next marker number in the series"""
     
@@ -293,7 +300,10 @@ def toggle_always_on_top():
         dpg.set_viewport_always_top(False)
 
 def create_marker():
-
+    
+    global markers
+    global force_refresh
+    
     timeline = resolve.active_timeline
     framerate = resolve.active_timeline.settings.frame_rate
     patchwork_markers:list[Marker]|None = timeline.markers.find_all("patchwork_marker")
@@ -301,8 +311,11 @@ def create_marker():
     min_duration = int(framerate) * 2
     tc = Timecode(framerate=framerate, start_timecode=timeline.timecode)
     print(f"Timecode: {timeline.timecode} Frames: {tc.frames} Framerate: {framerate}")
+
     assert tc.frames is not None
+    new_marker_frame_id = tc.frames -1
     
+
     new_marker_start = tc.frames -1
     new_marker_end = new_marker_start + min_duration
     
@@ -329,6 +342,7 @@ def create_marker():
     
     if not resolve.active_timeline.markers.add(
         new_marker_start,
+
         "Purple", 
         duration=min_duration, 
         name=f"Change - {get_next_free_marker_num()}", 
@@ -341,18 +355,22 @@ def clear_markers():
     """
     Delete all patchwork markers
     """
-    timeline = resolve.active_timeline
-    markers = timeline.markers.find_all("patchwork_marker")
+    
+    global markers
+    global force_refresh
     
     if not markers:
         return False
     
     [x.delete() for x in markers]
+    force_refresh = True
+    markers = copy.copy(resolve.active_timeline.markers)
     return True
 
 # Commands
 def add_change():
     
+
     global refresh_now
       
     create_marker()
@@ -430,9 +448,8 @@ def init():
     # Post context init imports
     # These will silently crash dpg if instantiated earlier
     global routines
-    global dialog_box
-
     import routines
+    global dialog_box
     from widgets import dialog_box
 
     # Load logo image
@@ -443,8 +460,26 @@ def init():
     # Resolve init
     global resolve
     resolve = davinci.Resolve()
-    resolve.active_timeline.custom_settings(True)
     
+    global project
+    project = resolve.project
+    
+    global timeline
+    timeline = resolve.active_timeline
+    resolve.active_timeline.custom_settings(True)
+
+    global force_refresh
+    force_refresh = False
+    
+    global markers
+    markers = resolve.active_timeline.markers   
+
+    global current_frame_rate
+    current_frame_rate = copy.copy(resolve.active_timeline.settings.frame_rate)
+
+    global current_timecode
+    current_timecode = copy.copy(resolve.active_timeline.timecode)
+
     global current_frame_rate
     current_frame_rate = copy.copy(resolve.active_timeline.settings.frame_rate)
     
@@ -461,7 +496,7 @@ def init():
     
     global render_preset_chosen
     render_preset_chosen = False    
-    
+
     # Timers
     global half_a_second
     half_a_second = routines.Timer(0.5)
@@ -653,7 +688,25 @@ async def render():
             # TODO: Check timeline is same as tracked timeline, disable changes page
             # On each timeline change, ensure custom settings are enabled. Make it so.
                 
-        await trio.sleep(0)
+                current_frame_rate = copy.copy(resolve.active_timeline.settings.frame_rate)
+                
+                logger.debug("[magenta]Ensure custom timeline settings enabled")
+                resolve.active_timeline.custom_settings(True)
+                await routines.check_timecode_starts_at_zero(current_frame_rate, current_timecode)
+                
+            # RUN EVERY HALF SECOND REGARDLESS OF ENVIRONMENT STATE
+            current_timecode = copy.copy(resolve.active_timeline.timecode)
+            
+
+            # Weird single frame offset
+            # TODO: Fix type error
+            current_frame = get_current_frame(current_frame_rate, current_timecode)  #type: ignore
+
+            logger.debug("[magenta]Running complex routines")
+            await routines.refresh_add_status(markers, current_timecode, current_frame)
+            await routines.refresh_commit_status(markers)
+        
+    await trio.sleep(0)
 
 async def main():
     

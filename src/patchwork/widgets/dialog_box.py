@@ -15,7 +15,6 @@ def dialog_selection_callback(sender, unused, user_data) -> bool:
         return False
                    
 def prompt(message:str, title:str="Dialog", show_ok:bool=True, show_cancel:bool=False, wrap:int=400, **kwargs) -> bool|None:
-    
     if dpg.does_item_exist("dialog"):
         dpg.delete_item("dialog")
     
