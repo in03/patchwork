@@ -14,8 +14,7 @@ def dialog_selection_callback(sender, unused, user_data) -> bool:
         dpg.delete_item(user_data[0])
         return False
                    
-def prompt(message:str, title:str="Dialog", show_ok:bool=True, show_cancel:bool=False, **kwargs) -> bool|None:
-    
+def prompt(message:str, title:str="Dialog", show_ok:bool=True, show_cancel:bool=False, wrap:int=400, **kwargs) -> bool|None:
     if dpg.does_item_exist("dialog"):
         dpg.delete_item("dialog")
     
@@ -25,7 +24,7 @@ def prompt(message:str, title:str="Dialog", show_ok:bool=True, show_cancel:bool=
         viewport_height = dpg.get_viewport_client_height()
         
         with dpg.window(label=title, modal=True, no_title_bar=True, tag="dialog", **kwargs) as dialog_window:
-            dpg.add_text(message)
+            dpg.add_text(message, wrap=wrap)
             dpg.add_separator()
             with dpg.group(horizontal=True, tag="dialog_buttons"):
                 

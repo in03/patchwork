@@ -1,7 +1,6 @@
 from timecode import Timecode
 from dearpygui import dearpygui as dpg
 from pydavinci.wrappers.marker import MarkerCollection, Marker
-from pydavinci.wrappers.resolve import Resolve
 from pydavinci import davinci
 from pydavinci.exceptions import TimelineNotFound
 from widgets import dialog_box
@@ -122,40 +121,30 @@ async def get_markers_at_playhead(current_markers:MarkerCollection, current_fram
     
         playhead_markers = [x for x in current_markers if current_frame >= x.frameid and current_frame < (x.frameid + x.duration)]
         
-        if len(playhead_markers) > 1:
-            logger.warning(f"[yellow]Multiple overlapping markers\n{[str(x) for x in playhead_markers]}")
-        
     await trio.sleep(0)
     return playhead_markers 
 
 async def refresh_add_status(current_markers:MarkerCollection, current_timecode:str, current_frame:int):
     
     logger.debug("[magenta]Refreshing 'Add' status")
-    
-    playhead_markers = []
-    if current_markers:
-        playhead_markers = await get_markers_at_playhead(current_markers, current_frame)
+    playhead_markers = await get_markers_at_playhead(current_markers, current_frame)
+    if playhead_markers:
+                
+        # If any patchwork markers overlap
+        if len(playhead_markers) > 1:
+            if [x.customdata == "patchwork_marker" for x in playhead_markers]:
+                dpg.set_value("current_timecode_display", f"Multiple overlapping markers, unsupported!")
+                dpg.configure_item("current_timecode_display", color=[250, 0, 0])  
         
-    if len(playhead_markers) > 1:
-        
-        dpg.set_value("current_timecode_display", f"Markers overlapping, unsupported!")
-        dpg.configure_item("current_timecode_display", color=[250, 0, 0])  
+        # If not a patchwork marker
+        elif len(playhead_markers) == 1:
+            if not playhead_markers[0].customdata == "patchwork_marker":
+                dpg.set_value("current_timecode_display", f"Not a patchwork marker")
+                dpg.configure_item("current_timecode_display", color=[250, 150, 50])  
             
-    elif len(playhead_markers) == 1:
-        
-        playhead_marker = playhead_markers[0]
-        
-        #TODO: Set flag to allow prompting "overwrite"
-        
-        if not playhead_marker.customdata == "patchwork_marker":
-            
-            dpg.set_value("current_timecode_display", f"Not a Patchwork marker")
-            dpg.configure_item("current_timecode_display", color=[250, 0, 0])  
-            
-        else:
-            dpg.set_value("current_timecode_display", f"On marker: '{playhead_marker.name}'")
-            dpg.configure_item("current_timecode_display", color=[0, 255, 0])
-        
+            else:
+                dpg.set_value("current_timecode_display", f"On marker: '{playhead_markers[0].name}'")
+                dpg.configure_item("current_timecode_display", color=[0, 255, 0])
     else:
         dpg.set_value("current_timecode_display", f"{current_timecode} | {current_frame}")
         dpg.configure_item("current_timecode_display", color=[50, 150, 255])
@@ -219,12 +208,17 @@ async def refresh_commit_status(current_markers:MarkerCollection):
     if committed_changes and not uncommitted_changes:
         dpg.configure_item("commit_status", color=[0, 255, 0]) 
         dpg.set_value("commit_status", f"All changes committed")
+        dpg.configure_item("push_button", enabled=True)
         
     elif uncommitted_changes and not committed_changes:
-        dpg.configure_item("commit_status", color=[255, 150, 0]) 
+        dpg.configure_item("commit_status", color=[255, 150, 0])
+        dpg.configure_item("commit_button", enabled=True)
+        dpg.configure_item("push_button", enabled=False)
         dpg.set_value("commit_status", f"{len(uncommitted_changes)} uncommitted")
 
     elif uncommitted_changes:
+        dpg.configure_item("commit_button", enabled=True)
+        dpg.configure_item("push_button", enabled=False)
         dpg.configure_item("commit_status", color=[255, 150, 0]) 
         dpg.set_value(
             "commit_status", 
@@ -233,10 +227,14 @@ async def refresh_commit_status(current_markers:MarkerCollection):
         )
 
     elif not committed_changes and not uncommitted_changes:
+        dpg.configure_item("commit_button", enabled=False)
+        dpg.configure_item("push_button", enabled=False)
         dpg.configure_item("commit_status", color=[50, 150, 255])
         dpg.set_value("commit_status", "No changes")
         
     else:
+        dpg.configure_item("commit_button", enabled=False)
+        dpg.configure_item("push_button", enabled=False)
         dpg.configure_item("commit_status", color=[255, 150, 0])
         dpg.set_value("commit_status", "N/A")
             
