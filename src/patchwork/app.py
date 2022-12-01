@@ -554,7 +554,7 @@ def setup_gui():
                         dpg.add_button(label="Add", tag="add_button", callback=add_change)
                         
                         # CLEAR BUTTON
-                        dpg.add_button(label="Clear Changes", tag="clear_changes_button", callback=clear_changes)
+                        dpg.add_button(label="hanges", tag="clear_changes_button", callback=clear_changes)
                         with dpg.tooltip("clear_changes_button"):
                             dpg.add_text("Clear all of Patchwork's ranged-markers\nfrom the active timeline")
                             
