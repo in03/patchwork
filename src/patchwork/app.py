@@ -362,7 +362,7 @@ def clear_markers():
     if not markers:
         return False
     
-    [x.delete() for x in markers]
+    [x.delete() for x in markers if x.customdata == "patchwork_marker"]
     force_refresh = True
     markers = copy.copy(resolve.active_timeline.markers)
     return True
