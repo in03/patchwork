@@ -203,9 +203,8 @@ class TrackPatchfile():
         self.chosen_file = os.path.basename(self.chosen_filepath)
         self.chosen_filename = os.path.splitext(self.chosen_file)[0]
         
-        dpg.configure_item("master_status", color=[100, 255, 100])
-        dpg.set_value("master_status", f"Tracking")
-        dpg.set_value("master_status_tooltip", f"Tracking master file:\n{self.chosen_filepath}")
+        dpg.configure_item("source_status", color=[100, 255, 100])
+        dpg.set_value("source_status", f"Linked")
         dpg.set_value("track_file_input", self.chosen_filepath)
         
     def cancel_callback(self, sender, app_data):
@@ -222,8 +221,8 @@ class RenderPatchFile():
             directory_selector=True, 
             default_path="Z:\\@Finished Renders", 
             show=False, 
-            callback=self.callback, 
-            cancel_callback=self.cancel_callback, 
+            callback=self.picked_dir_callback, 
+            cancel_callback=self.picked_dir_cancel_callback, 
             modal=True,
             width=600,
             height=400,
@@ -233,7 +232,7 @@ class RenderPatchFile():
             dpg.add_file_extension(".patch", color=(255, 255, 0, 255))
             dpg.add_file_extension(".*")
            
-    def callback(self, sender:str, app_data:dict):
+    def picked_dir_callback(self, sender:str, app_data:dict):
         print('OK was clicked.')
         print("Sender: ", sender)
         print("App Data: ", app_data)
@@ -243,17 +242,16 @@ class RenderPatchFile():
         full_output_path = f"{chosen_dirpath}{os.sep}{determined_filename}"
         chosen_render_preset = choose_render_preset()
         print(f"Chosen render preset: {chosen_render_preset}")
-
         
-        patchfile = PatchFile()
-        patchfile.new(full_output_path)
+        dpg.configure_item("choose_render_preset_button", enabled=True)
+        
+        # patchfile = PatchFile()
+        # patchfile.new(full_output_path)
 
-        dpg.configure_item("master_status", color=[255, 150, 0])
-        dpg.set_value("master_status", f"Rendering \"{determined_filename}\"")
-        dpg.set_value("master_status_tooltip", f"Rendering master file to path:\n'{full_output_path}'")
-        dpg.set_value("master_status_tooltip", f"Rendering master file to path:\n'{full_output_path}'")
+        dpg.configure_item("source_status", color=[255, 150, 0])
+        dpg.set_value("source_status", f"Rendering \"{determined_filename}\"")
 
-    def cancel_callback(self, sender, app_data):
+    def picked_dir_cancel_callback(self, sender, app_data):
         print('Cancel was clicked.')
         print("Sender: ", sender)
         print("App Data: ", app_data)
@@ -373,7 +371,6 @@ def add_change():
     global refresh_now
     create_marker()
 
-    print("Fresh")
     refresh_now = True
     
 def clear_changes():
@@ -420,10 +417,10 @@ def init():
     global dialog_box
     from widgets import dialog_box
 
-    # Load logo image
-    width, height, channels, data = dpg.load_image(os.path.join(src_folder, "logo.png"))
-    with dpg.texture_registry(show=False):
-        dpg.add_static_texture(width=width, height=height, default_value=data, tag="texture_tag")
+    # # Load logo image
+    # width, height, channels, data = dpg.load_image(os.path.join(src_folder, "logo.png"))
+    # with dpg.texture_registry(show=False):
+    #     dpg.add_static_texture(width=width, height=height, default_value=data, tag="texture_tag")
 
     # Resolve init
     global resolve
@@ -490,15 +487,11 @@ def setup_gui():
                 dpg.add_menu_item(label="About")
                 dpg.add_menu_item(label="Docs", callback=open_documentation)
         
-        dpg.add_image("texture_tag") 
-            
-        dpg.add_separator()
-        dpg.add_spacer(height=20) 
+        # dpg.add_image("texture_tag") 
+        # dpg.add_separator()
         
-                        
-        dpg.add_text("Currently untracked", tag="master_status", color=[255, 100, 100], wrap=500)
-        with dpg.tooltip("master_status"):
-            dpg.add_text(f"On the source page, select a patchwork file to track\nor render a new master file", tag="master_status_tooltip")
+        dpg.add_spacer(height=20)
+        dpg.add_text("Link or create a new patchwork file", tag="master_status", color=[250, 150, 50], wrap=500)
             
         dpg.add_separator()
         dpg.add_spacer(height=20) 
@@ -510,46 +503,34 @@ def setup_gui():
                 
                 # CHANGES PAGE
                 with dpg.tab(label="Changes"):
+                    
                     dpg.add_spacer(height=20) 
                     dpg.add_text("N/A", tag="current_timecode_display", color=[255, 150, 0])
                     dpg.add_spacer(height=20) 
                     
-                    with dpg.group(tag="add_group", horizontal=True):
+                    dpg.add_separator()
+                    with dpg.group(horizontal=True):
                         
-                        # ADD BUTTON
                         dpg.add_button(label="Add", tag="add_button", callback=add_change)
-                        
-                        # CLEAR BUTTON
                         dpg.add_button(label="Clear All", tag="clear_changes_button", callback=clear_changes)
-                            
-                        # RENDER BUTTON
                         dpg.add_button(label="Render", tag="render_button", callback=render_changes)
                         
-                        dpg.add_separator()
-                        dpg.add_spacer(height=20) 
+                    dpg.add_separator()
                 
                 # SOURCE PAGE
                 with dpg.tab(label="Source"):
                     
-                    dpg.add_spacer(height=20)
-                    dpg.add_text("Track existing sidecar file")
-                        
-                    with dpg.group(tag="file_selector", horizontal=True):
-                        dpg.add_button(label="Browse", tag="link_browse_button", callback=lambda: dpg.show_item("track_file_dialog"))
-                        dpg.add_input_text(default_value="", tag="track_file_input")
-                    dpg.add_button(label="Link", tag="link_patchfile", callback=lambda: dpg.show_item("track_file_dialog"), show=False)
-                    
-                    dpg.add_spacer(height=20)
-                    dpg.add_text("Render new master and regenerate sidecar file")
-                    with dpg.group(tag="render_buttons", horizontal=True):
-                        dpg.add_button(label="Browse", tag="render_browse_button", callback=lambda: dpg.show_item("render_file_dialog"))
-                        dpg.add_button(label="Choose render preset", tag="choose_render_preset_button", enabled=False, callback=lambda: choose_render_preset())
-                        dpg.add_button(label="Render", tag="render_start_button", enabled=False, callback=lambda: dialog_box.prompt("TODO: Render!"))
                     dpg.add_spacer(height=20) 
-                    
-        dpg.add_separator()
-        dpg.add_spacer(height=20) 
+                    dpg.add_text("Not currently tracking", tag="source_status", color=[255, 150, 0])
+                    dpg.add_spacer(height=20) 
 
+                    dpg.add_separator()
+                    with dpg.group(tag="source_buttons", horizontal=True):
+                        dpg.add_button(label="Link", tag="link_browse_button", callback=lambda: dpg.show_item("track_file_dialog"))
+                        dpg.add_button(label="New", tag="render_browse_button", callback=lambda: dpg.show_item("render_file_dialog"))
+                    dpg.add_separator()
+                        
+                    
 async def resolve_is_ready():
     routines.get_environment_state()
     
