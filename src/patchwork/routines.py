@@ -6,7 +6,6 @@ from pydavinci.exceptions import TimelineNotFound
 from widgets import dialog_box
 import trio
 import logging
-import copy
 
 logger = logging.getLogger(__name__)
 logger.setLevel(dpg.get_value("loglevel"))
@@ -182,60 +181,5 @@ async def check_timecode_starts_at_zero(current_frame_rate:float, current_timeco
                 "If not, nevermind."
             )
             dpg.set_value("zero_timecode_warning_dismissed", True)
-            
-    await trio.sleep(0)
-
-async def refresh_commit_status(current_markers:MarkerCollection):
-    
-    logger.debug("[magenta]Refreshing 'Commit' status")
-    
-    committed_changes = []
-    uncommitted_changes = []
-    invalid_changes = []
-
-    for x in current_markers:
-        if x.customdata != "patchwork_marker":
-            continue
-        if x.color == "Green":
-            committed_changes.append(x)
-        elif x.color == "Purple":
-            uncommitted_changes.append(x)
-        else:
-            invalid_changes.append(x)
-
-    assert not invalid_changes 
-            
-    if committed_changes and not uncommitted_changes:
-        dpg.configure_item("commit_status", color=[0, 255, 0]) 
-        dpg.set_value("commit_status", f"All changes committed")
-        dpg.configure_item("push_button", enabled=True)
-        
-    elif uncommitted_changes and not committed_changes:
-        dpg.configure_item("commit_status", color=[255, 150, 0])
-        dpg.configure_item("commit_button", enabled=True)
-        dpg.configure_item("push_button", enabled=False)
-        dpg.set_value("commit_status", f"{len(uncommitted_changes)} uncommitted")
-
-    elif uncommitted_changes:
-        dpg.configure_item("commit_button", enabled=True)
-        dpg.configure_item("push_button", enabled=False)
-        dpg.configure_item("commit_status", color=[255, 150, 0]) 
-        dpg.set_value(
-            "commit_status", 
-            f"{len(uncommitted_changes)} uncommitted | "
-            f"{len(committed_changes)} committed"
-        )
-
-    elif not committed_changes and not uncommitted_changes:
-        dpg.configure_item("commit_button", enabled=False)
-        dpg.configure_item("push_button", enabled=False)
-        dpg.configure_item("commit_status", color=[50, 150, 255])
-        dpg.set_value("commit_status", "No changes")
-        
-    else:
-        dpg.configure_item("commit_button", enabled=False)
-        dpg.configure_item("push_button", enabled=False)
-        dpg.configure_item("commit_status", color=[255, 150, 0])
-        dpg.set_value("commit_status", "N/A")
             
     await trio.sleep(0)

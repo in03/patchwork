@@ -369,10 +369,8 @@ def clear_markers():
 
 # Commands
 def add_change():
-    
 
     global refresh_now
-      
     create_marker()
 
     print("Fresh")
@@ -387,38 +385,8 @@ def clear_changes():
         return
     
     refresh_now = True
-    
-def commit_changes():
-    
-    timeline = resolve.active_timeline
-    framerate = timeline.settings.frame_rate
-    min_duration = int(framerate) * 2
-    markers = timeline.markers.find_all("patchwork_marker")
-    
-    patchfile = PatchFile(track_patch_file.chosen_filepath)
-    saved_settings = patchfile.load()
-    print(saved_settings)
-    # compare_settings = patchfile.compare()
-    
-    assert markers
-    
-    invalid_markers = [x for x in markers if x.duration < min_duration]
-    if invalid_markers:
-        dialog_box.prompt(
-            "Markers shouldn't be shorter than 2 seconds.\n"
-            f"These markers are invalid:\n{invalid_markers}",
-        )
-        return
-    
-    # TODO: Check for overlapping markers
-    
-    for x in markers:
-        x.color = "Green"
-        
-    patchfile.update(markers)
-    
-        
-def push_changes():
+
+def render_changes():
     
     project = resolve.project
     timeline = resolve.active_timeline
@@ -547,40 +515,25 @@ def setup_gui():
                     dpg.add_text("Mark changes on the active timeline to patch the master file with", wrap=500)
                     dpg.add_spacer(height=20) 
                     
-
                     with dpg.group(tag="add_group", horizontal=True):
                         
                         # ADD BUTTON
                         dpg.add_button(label="Add", tag="add_button", callback=add_change)
                         
                         # CLEAR BUTTON
-                        dpg.add_button(label="hanges", tag="clear_changes_button", callback=clear_changes)
-                        with dpg.tooltip("clear_changes_button"):
-                            dpg.add_text("Clear all of Patchwork's ranged-markers\nfrom the active timeline")
+                        dpg.add_button(label="Clear All", tag="clear_changes_button", callback=clear_changes)
                             
                     dpg.add_text("N/A", tag="current_timecode_display", color=[255, 150, 0])
                             
                     dpg.add_separator()
-                    dpg.add_spacer(height=20)
-                                
-                    # COMMIT BUTTON
-                    dpg.add_text("Commit changes and create render jobs", wrap=500)
-                    with dpg.group(tag="commit_group"):
-                        dpg.add_text("No changes to commit", tag="commit_status", color=[255, 100, 100], wrap=500)
-                        dpg.add_button(label="Commit", tag="commit_button", callback=commit_changes)
-                        
-                    dpg.add_separator()
                     dpg.add_spacer(height=20) 
                         
-                    # PUSH BUTTON
-                    dpg.add_button(label="Push", tag="push_button", callback=push_changes)
-                    with dpg.tooltip("push_button"):
+                    # RENDER BUTTON
+                    dpg.add_button(label="Render", tag="render_button", callback=render_changes)
+                    with dpg.tooltip("render_button"):
                         dpg.add_text("Render and merge changes")
                             
                     dpg.add_separator()
-                    dpg.add_spacer(height=20) 
-                
-                        
                     dpg.add_spacer(height=20) 
                 
                 # SOURCE PAGE
@@ -674,24 +627,7 @@ async def render():
             logger.debug("[magenta]Running complex routines")
             await routines.check_timecode_starts_at_zero(current_frame_rate, current_timecode)
             await routines.refresh_add_status(current_markers, current_timecode, current_frame)
-            await routines.refresh_commit_status(current_markers)
             
-            # TODO: Check Resolve is open, lock up whole interface with warning otherwise
-            # No option to dismiss dialog box. Automatically dismiss box when Resolve is opened
-            
-            # TODO: Check timeline is open, lock up whole interface with warning otherwise
-            # No option to dismiss dialog box. Automatically dismiss box when timeline is opened
-            
-            # TODO: Check timeline is same as tracked timeline, disable changes page
-            # On each timeline change, ensure custom settings are enabled. Make it so.
-                                
-            # RUN EVERY HALF SECOND REGARDLESS OF ENVIRONMENT STATE
-            current_timecode = copy.copy(resolve.active_timeline.timecode)
-
-            logger.debug("[magenta]Running complex routines")
-            await routines.refresh_add_status(markers, current_timecode, current_frame)
-            await routines.refresh_commit_status(markers)
-        
     await trio.sleep(0)
 
 async def main():
