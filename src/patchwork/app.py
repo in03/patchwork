@@ -9,6 +9,7 @@ from timecode import Timecode
 from rich.logging import RichHandler
 import webbrowser
 import json
+from json import JSONDecodeError
 import os
 from deepdiff import DeepDiff
 import trio
@@ -28,6 +29,8 @@ app_file_path = Path(__file__)
 src_folder = app_file_path.parent.absolute()
 root_folder = src_folder.parent.absolute()
 
+config_file = os.path.join(root_folder, "config.json")
+
 #############################################################################
 # ALL DPG CALLS MUST BE MADE AFTER 'dpg.create_context()!
 dpg.create_context()
@@ -38,23 +41,64 @@ with dpg.value_registry():
     dpg.add_string_value(tag="loglevel", default_value="INFO")
 # logger.setLevel(dpg.get_value("loglevel"))
 
-global window_width
-width = 450
+def set_viewport_config() -> bool:
+    
+    logger.debug("[magenta]Loading viewport configuration")
+    
+    global config_file
+    if not os.path.exists(config_file):
+        logger.warning("[yellow]Config file does not exist")
+        return False
+        
+    with open(config_file, "r") as json_file: 
+        
+        try:
+            json_data = json_file.read()
+            config_data = json.loads(json_data)
+            
+        except FileNotFoundError:
+            logger.warning("[yellow]Config file does not exist")
+            return False
+        
+        except JSONDecodeError:
+            logger.warning("[red]Config file contains malformed JSON!")
+            return False
+        
+        viewport_config = config_data.get("viewport")
+        if not viewport_config:
+            logger.warning("[yellow]Config file contained no viewport configuration")
+            return False
+    
+    
+    global window_width
+    global window_height
+    window_width = viewport_config['width'] 
+    window_height = viewport_config['height']
+    
+    dpg.set_viewport_width(viewport_config['width'] )
+    dpg.set_viewport_height(viewport_config["height"])
+    dpg.set_viewport_pos(viewport_config["position"])
+    
+    return True
+            
+window_width = 600
+window_height = 400
 
-global window_height
-height = 300
-
-dpg.set_global_font_scale(1.5)
+dpg.set_global_font_scale(1.2)
 dpg.configure_app(init_file=os.path.join(root_folder, "dpg.ini"))
-dpg.create_viewport(title='Patchwork 0.1.0', width=450, height=250, resizable=False)
+  
+dpg.create_viewport(
+    title='Patchwork 0.1.0', 
+    width=window_width, 
+    height=window_height, 
+    min_width=window_width, 
+    min_height=window_height,
+    resizable=True,
+)
+set_viewport_config()
 dpg.set_viewport_always_top(True)
 dpg.setup_dearpygui()
 dpg.show_viewport()
-
-# Save init
-def save_init():
-    logger.info("[magenta]Saving gui configuration")
-    dpg.save_init_file(os.path.join(root_folder, "dpg.ini"))
     
 # RENDER PRESET
 def choose_render_preset_callback():
@@ -179,15 +223,19 @@ class PatchFile():
 class TrackPatchfile():
     def __init__(self):
         
+        global window_width
+        global window_height
+        
         with dpg.file_dialog(
             directory_selector=False, 
-            default_path="Z:\\@Finished Renders", 
+            default_path="Z:/@FinishedRenders",
+            
             show=False, 
             callback=self.patchfile_chosen_callback, 
             cancel_callback=self.patchfile_chosen_cancel_callback, 
             modal=True,
-            width=600,
-            height=400,
+            width=window_width - 50,
+            height=window_height - 200,
             tag="track_file_dialog",
         ):
         
@@ -268,10 +316,21 @@ class RenderPatchFile():
 track_patch_file = TrackPatchfile()
 render_patch_file = RenderPatchFile()
 
-# Callback
-def mouse_drag_callback():
-    logger.info("Saving init file")
-    save_init()
+def get_current_viewport_config() -> dict:
+    return {
+        "viewport": {
+            "width": dpg.get_viewport_client_width(),
+            "height": dpg.get_viewport_client_height(),
+            "position": dpg.get_viewport_pos(),
+        }
+    }
+
+def exit_callback():
+    
+    global config_file
+    logger.info("[magenta]Writing viewport config to file")
+    with open(config_file, "w") as json_file:
+        json_file.write(json.dumps(get_current_viewport_config()))
 
 # Helpers
 def should_refresh_now():
@@ -475,7 +534,9 @@ def init():
 
     # Timers
     global half_a_second
+    global five_seconds
     half_a_second = routines.Timer(0.5)
+    five_seconds = routines.Timer(5)
 
 def setup_gui():
     
@@ -630,6 +691,7 @@ async def main():
     # LOOP
     logger.debug("[magenta]Starting render cycle!")
 
+    dpg.set_exit_callback(exit_callback)
     while dpg.is_dearpygui_running():
         async with trio.open_nursery() as nursery: 
             nursery.start_soon(gui_render)
