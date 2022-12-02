@@ -28,8 +28,12 @@ logger = logging.getLogger(__name__)
 app_file_path = Path(__file__)
 src_folder = app_file_path.parent.absolute()
 root_folder = src_folder.parent.absolute()
-
 config_file = os.path.join(root_folder, "config.json")
+patchwork_file = None
+
+# DEFAULTS
+window_width = 600
+window_height = 400
 
 #############################################################################
 # ALL DPG CALLS MUST BE MADE AFTER 'dpg.create_context()!
@@ -40,185 +44,8 @@ dpg.create_context()
 with dpg.value_registry():
     dpg.add_string_value(tag="loglevel", default_value="INFO")
 # logger.setLevel(dpg.get_value("loglevel"))
-
-def set_viewport_config() -> bool:
     
-    logger.debug("[magenta]Loading viewport configuration")
-    
-    global config_file
-    if not os.path.exists(config_file):
-        logger.warning("[yellow]Config file does not exist")
-        return False
-        
-    with open(config_file, "r") as json_file: 
-        
-        try:
-            json_data = json_file.read()
-            config_data = json.loads(json_data)
-            
-        except FileNotFoundError:
-            logger.warning("[yellow]Config file does not exist")
-            return False
-        
-        except JSONDecodeError:
-            logger.warning("[red]Config file contains malformed JSON!")
-            return False
-        
-        viewport_config = config_data.get("viewport")
-        if not viewport_config:
-            logger.warning("[yellow]Config file contained no viewport configuration")
-            return False
-    
-    
-    global window_width
-    global window_height
-    window_width = viewport_config['width'] 
-    window_height = viewport_config['height']
-    
-    dpg.set_viewport_width(viewport_config['width'] )
-    dpg.set_viewport_height(viewport_config["height"])
-    dpg.set_viewport_pos(viewport_config["position"])
-    
-    return True
-            
-window_width = 600
-window_height = 400
-
-dpg.set_global_font_scale(1.2)
-dpg.configure_app(init_file=os.path.join(root_folder, "dpg.ini"))
   
-dpg.create_viewport(
-    title='Patchwork 0.1.0', 
-    width=window_width, 
-    height=window_height, 
-    min_width=window_width, 
-    min_height=window_height,
-    resizable=True,
-)
-set_viewport_config()
-dpg.set_viewport_always_top(True)
-dpg.setup_dearpygui()
-dpg.show_viewport()
-    
-# RENDER PRESET
-def choose_render_preset_callback():
-    
-    dpg.configure_item("preset_picker", show=False)
-    chosen_render_preset = dpg.get_value("preset_combo")
-    print(f"Chosen render preset {chosen_render_preset}")
-    dpg.delete_item("preset_picker")
-     
-def choose_render_preset():
-
-    with dpg.window(label="Render Presets", tag="preset_picker", modal=True, autosize=True):
-        dpg.add_combo(resolve.project.render_presets, tag="preset_combo", default_value="-- Choose Render Preset --")
-        dpg.add_button(label="Confirm", callback=choose_render_preset_callback)
-            
-def load_render_preset() -> bool:
-    
-    if not dpg.get_value("preset_combo"):
-        dialog_box.prompt("No render preset chosen. Please choose one before loading")
-        return False
-        
-    if not resolve.project.load_render_preset(dpg.get_value("preset_radio")):
-        dialog_box.prompt("Couldn't load render preset! Please ensure it exists.")
-        return False
-    
-    return True
-
-class PatchFile():
-    
-    def __init__(self, patchfile:str):
-        
-        self.resolve = davinci.Resolve()
-        self.patchfile = patchfile
-        self.patchfile_data = {}
-        self.current_settings = self.get_current_settings()
-        
-    def get_current_settings(self) -> dict:
-        
-        project = self.resolve.project
-        timeline = self.resolve.active_timeline
-        project_settings = project.get_setting()
-        timeline_settings = timeline.get_setting()
-        render_settings = project.current_render_format_and_codec  
-        
-        data = {
-            "project_name": project.name,
-            "timeline_name": timeline.name,
-            "settings": {
-                "project_settings":project_settings,
-                "timeline_settings":timeline_settings,
-                "render_settings":render_settings,
-            }
-        }
-        return data
-    
-    def get_changes_data(self) -> dict:
-        
-        timeline = self.resolve.active_timeline
-        changes = [x for x in timeline.markers if x.customdata == "patchwork_marker"]
-        
-        data = {
-            "changes": changes,
-        }
-        return data
-    
-    def compare(self):
-
-        if self.current_settings["project_name"] != self.patchfile_data["project_name"]:
-            dialog_box.prompt(
-                f"Looks like the tracked file is for a different project: '{self.patchfile_data['project_name']}'\n"
-                "Please load the correct patchfile for this project, or create a new one."
-            )
-            return
-        
-        if self.current_settings["timeline_name"] != self.patchfile_data["timeline_name"]:
-            dialog_box.prompt(
-                f"Looks like the tracked file is for a different timeline: '{self.patchfile_data['timeline_name']}'\n"
-                "Please load the correct patchfile for this timeline, or create a new one."
-            )
-            return
-        
-        settings_diff = DeepDiff(self.current_settings["settings"], self.patchfile_data["settings"])
-        if settings_diff:
-            
-            print(settings_diff)
-            dialog_box.prompt(
-                "Looks like project settings have been altered since the master file was rendered!\n"
-                "You will need to render a master file again, since consistent results cannot be guaranteed with different settings\n"
-                f"{settings_diff}"
-            )
-            return
-    
-    def load(self):
-        
-        with open(self.patchfile) as patchfile:
-            self.patchfile_data = json.loads(patchfile.read())
-            return self.patchfile_data
-     
-    def update(self, writable):
-        
-        if not self.patchfile:
-            logger.error("[red]No patchfile chosen")
-            return None
-        
-        existing_data = self.load()
-        with open(self.patchfile, "w") as json_file:
-            if existing_data:
-                writable.update(existing_data)
-            return json.dump(writable, json_file)
-            
-    def new(self, patchfile_path):
-            
-        data = self.get_current_settings()
-        
-        try:
-            with open(patchfile_path + ".patch", "w") as patchfile:
-                patchfile.write(json.dumps(data, sort_keys=True))
-        except PermissionError:
-            dialog_box.prompt("You don't have write permissions to this folder. Try another one.")
-       
 # File Dialog
 class TrackPatchfile():
     def __init__(self):
@@ -259,55 +86,71 @@ class TrackPatchfile():
         self.chosen_file = os.path.basename(self.chosen_filepath)
         self.chosen_filename = os.path.splitext(self.chosen_file)[0]
         
+        global patchwork_file
+        patchwork_file = self.chosen_filepath
+        
         dpg.configure_item("add_button", enabled=True)
+        dpg.configure_item("render_button", enabled=True)
         dpg.configure_item("source_status", color=[100, 255, 100])
-        dpg.set_value("source_status", f"Linked")
-        dpg.set_value("track_file_input", self.chosen_filepath)
+        dpg.set_value("source_status", f"Linked: '{self.chosen_filename}'")
         
     def patchfile_chosen_cancel_callback(self, sender, app_data):
         print('Cancel was clicked.')
         print("Sender: ", sender)
         print("App Data: ", app_data)       
 
+def choose_render_preset_callback():
+    dpg.hide_item("preset_picker")
+    if dpg.get_value("preset_picker") == "-- Choose Render Preset --":
+        dialog_box.prompt("Please choose a render preset to continue!")
+        return
+    
+    logger.info(f"[magenta]Chosen render preset: {dpg.get_value('chosen_render_preset')}")
+    patchfile.new(patchwork_file)
 
-# File Dialog
+# TODO: Get rid of these classes!
+# They're gross. Global state all the way!
 class RenderPatchFile():
     def __init__(self):
         
+        global window_width
+        global window_height
+        
         with dpg.file_dialog(
             directory_selector=True, 
-            default_path="Z:\\@Finished Renders", 
+            default_path="Z:/@FinishedRenders", 
             show=False, 
             callback=self.picked_dir_callback, 
             cancel_callback=self.picked_dir_cancel_callback, 
             modal=True,
-            width=600,
-            height=400,
+            width=window_width - 50,
+            height=window_height - 200,
             tag="render_file_dialog",
         ):
         
             dpg.add_file_extension(".patch", color=(255, 255, 0, 255))
             dpg.add_file_extension(".*")
            
+
     def picked_dir_callback(self, sender:str, app_data:dict):
+        
         print('OK was clicked.')
         print("Sender: ", sender)
         print("App Data: ", app_data)
         
         chosen_dirpath = app_data['file_path_name']
         determined_filename = f"{resolve.project.name} - {resolve.active_timeline.name}"
-        full_output_path = f"{chosen_dirpath}{os.sep}{determined_filename}"
-        chosen_render_preset = choose_render_preset()
-        print(f"Chosen render preset: {chosen_render_preset}")
         
-        dpg.configure_item("choose_render_preset_button", enabled=True)
+        global patchwork_file
+        patchwork_file = f"{chosen_dirpath}{os.sep}{determined_filename}.patch"           
+                                      
+        with dpg.window(label="Render Presets", tag="preset_picker", autosize=True):
+            dpg.add_combo(resolve.project.render_presets, tag="chosen_render_preset", default_value="-- Choose Render Preset --")
+            dpg.add_button(label="Confirm", callback=choose_render_preset_callback)
+            
+            dpg.configure_item("source_status", color=[255, 150, 0])
+            dpg.set_value("source_status", f"Rendering \"{determined_filename}\"")
         
-        # patchfile = PatchFile()
-        # patchfile.new(full_output_path)
-
-        dpg.configure_item("source_status", color=[255, 150, 0])
-        dpg.set_value("source_status", f"Rendering \"{determined_filename}\"")
-
     def picked_dir_cancel_callback(self, sender, app_data):
         print('Cancel was clicked.')
         print("Sender: ", sender)
@@ -315,6 +158,15 @@ class RenderPatchFile():
 
 track_patch_file = TrackPatchfile()
 render_patch_file = RenderPatchFile()
+
+def exit_callback():
+    
+    global config_file
+    logger.info("[magenta]Writing viewport config to file")
+    with open(config_file, "w") as json_file:
+        json_file.write(json.dumps(get_current_viewport_config()))
+
+# Helpers
 
 def get_current_viewport_config() -> dict:
     return {
@@ -325,14 +177,46 @@ def get_current_viewport_config() -> dict:
         }
     }
 
-def exit_callback():
+def set_viewport_config() -> bool:
+    
+    logger.debug("[magenta]Loading viewport configuration")
     
     global config_file
-    logger.info("[magenta]Writing viewport config to file")
-    with open(config_file, "w") as json_file:
-        json_file.write(json.dumps(get_current_viewport_config()))
+    if not os.path.exists(config_file):
+        logger.warning("[yellow]Config file does not exist")
+        return False
+        
+    with open(config_file, "r") as json_file: 
+        
+        try:
+            json_data = json_file.read()
+            config_data = json.loads(json_data)
+            
+        except FileNotFoundError:
+            logger.warning("[yellow]Config file does not exist")
+            return False
+        
+        except JSONDecodeError:
+            logger.warning("[red]Config file contains malformed JSON!")
+            return False
+        
+        viewport_config = config_data.get("viewport")
+        if not viewport_config:
+            logger.warning("[yellow]Config file contained no viewport configuration")
+            return False
+    
+    
+    global window_width
+    global window_height
+    window_width = viewport_config['width'] 
+    window_height = viewport_config['height']
+    
+    dpg.set_viewport_width(viewport_config['width'] )
+    dpg.set_viewport_height(viewport_config["height"])
+    dpg.set_viewport_pos(viewport_config["position"])
+    
+    return True
 
-# Helpers
 def should_refresh_now():
     global force_refresh
     if force_refresh:
@@ -458,17 +342,55 @@ def clear_changes():
 
 def render_changes():
     
+    logger.info("[magenta]Starting render routine")
+    
+    global patchwork_file
+    assert patchwork_file
+    
     project = resolve.project
     timeline = resolve.active_timeline
+    markers = resolve.active_timeline.markers
+    patchwork_markers = [x for x in markers if x.customdata == "patchwork_marker"]
+    
+    patch_data = patchfile.load(patchwork_file)
+    print(patch_data)
+    
+    if not patch_data['project_name'] == project.name:
+        dialog_box.prompt(
+            "The active project doesn't match the linked patch file\n"
+            "Please load the correct file or change project."
+        )
+        return
+    
+    if not patch_data['timeline_name'] == timeline.name:
+        dialog_box.prompt(
+            "The active timeline doesn't match the linked patch file\n"
+            "Please load the correct file or change timeline."
+        )
+        return
+        
+    if not patch_data.get('render_preset'):
+        dialog_box.prompt(
+            "Render preset has not been defined within the patchfile!"
+        )
+        return
+        
+    # COMPARE
+    current_settings = patchfile.get_current_settings()
+    patchfile.compare(current_settings, patchwork_file)
+    
+    # Choose render preset
+    chosen_render_preset = dpg.get_value("chosen_render_preset")
+    if not chosen_render_preset:
+        dialog_box.prompt("No render preset chosen.\nPlease choose one before continuing.")
     
     job_ids = []
-    for x in committed_markers:
-        if not load_render_preset():
-            return
+    for x in patchwork_markers:
+        resolve.project.load_render_preset(chosen_render_preset)
         project.set_render_settings(
             {
                 "MarkIn": x.frameid,
-                "MarkOut": x.frameid + x.duration * timeline.settings.frame_rate,
+                "MarkOut": x.frameid + x.duration,
                 "CustomName": f"{project.name} {timeline.name} {x.name}"
             }
         )
@@ -482,13 +404,39 @@ def open_documentation():
 def init():
     
     print("Running")
-    # DearPyGUI Init
-    # Post context init imports
+    
+    dpg.set_global_font_scale(1.2)
+    dpg.configure_app(init_file=os.path.join(root_folder, "dpg.ini"))
+    
+    global window_width
+    global window_height
+    
+    dpg.create_viewport(
+        title='Patchwork 0.1.0', 
+        width=window_width, 
+        height=window_height, 
+        min_width=window_width, 
+        min_height=window_height,
+        resizable=True,
+    )
+    dpg.set_viewport_always_top(True)
+    dpg.setup_dearpygui()
+    
+    # TODO: Potentially make this async for faster start up?
+    # Would need all of init to be async though...
+    # Whilst awaiting viewport config json to load, set everything else up
+    # Then once loaded, show the viewport?
+    set_viewport_config()
+    dpg.show_viewport()
+
     # These will silently crash dpg if instantiated earlier
     global routines
-    import routines
+    global patchfile
     global dialog_box
+    import routines
+    import patchfile
     from widgets import dialog_box
+    
 
     # # Load logo image
     # width, height, channels, data = dpg.load_image(os.path.join(src_folder, "logo.png"))
@@ -505,6 +453,7 @@ def init():
     global timeline
     timeline = resolve.active_timeline
     resolve.active_timeline.custom_settings(True)
+    
 
     global force_refresh
     force_refresh = False
@@ -522,13 +471,6 @@ def init():
     refresh_now = False
     
     # Item enabled flags
-    
-    global committed_markers
-    committed_markers = []
-    
-    global new_changes_exist
-    new_changes_exist = False
-    
     global render_preset_chosen
     render_preset_chosen = False    
 
@@ -540,8 +482,8 @@ def init():
 
 def setup_gui():
     
-    with dpg.handler_registry():
-        ...
+    # with dpg.handler_registry():
+    #     ...
     
     # Configure disabled item theme
     with dpg.theme(tag="main_theme"):
@@ -604,7 +546,7 @@ def setup_gui():
                         dpg.add_button(label="Link", tag="link_browse_button", callback=lambda: dpg.show_item("track_file_dialog"))
                         dpg.add_button(label="New", tag="render_browse_button", callback=lambda: dpg.show_item("render_file_dialog"))
                     dpg.add_separator()
-                        
+    
                     
 async def resolve_is_ready():
     routines.get_environment_state()
@@ -628,12 +570,11 @@ async def resolve_is_ready():
     return True
 
 async def gui_render():
-    
-    global refresh_now
-        
+            
     dpg.render_dearpygui_frame()
     logger.debug(f"[magenta]{dpg.get_frame_count()}")
     
+    global refresh_now
     if half_a_second.has_passed or refresh_now:
         refresh_now = False
         
@@ -655,12 +596,18 @@ async def gui_render():
             current_markers = copy.copy(resolve.active_timeline.markers)
             patchwork_markers = ([x for x in current_markers if x.customdata == "patchwork_marker"])
 
+            global patchwork_file
+            if patchwork_file:
+                dpg.configure_item("add_button", enabled=True)
+                
             if not patchwork_markers:
                 dpg.configure_item("clear_changes_button", enabled=False)
                 dpg.configure_item("render_button", enabled=False)
             else:
                 dpg.configure_item("clear_changes_button", enabled=True)
-                dpg.configure_item("render_button", enabled=True)
+                if patchwork_file:
+                    dpg.configure_item("render_button", enabled=True)
+                
                         
             global current_timecode
             current_timecode = copy.copy(resolve.active_timeline.timecode)

@@ -111,12 +111,6 @@ class Timer:
             return True
         return False
 
-# def get_viewport_config():
-
-# async def load_viewport_config():
-
-# async def set_viewport_config():
-
 async def get_markers_at_playhead(current_markers:MarkerCollection, current_frame:int) -> list[Marker]:
     
     logger.debug("[magenta]Checking for marker at playhead")

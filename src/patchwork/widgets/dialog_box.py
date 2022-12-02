@@ -2,7 +2,7 @@ from dearpygui import dearpygui as dpg
 import logging
 
 logger = logging.getLogger(__name__)
-# logger.setLevel(dpg.get_value("loglevel"))
+logger.setLevel(dpg.get_value("loglevel"))
 
 def dialog_selection_callback(sender, unused, user_data) -> bool:
     if user_data[1]:
