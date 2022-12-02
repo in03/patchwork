@@ -511,8 +511,7 @@ def setup_gui():
                 # CHANGES PAGE
                 with dpg.tab(label="Changes"):
                     dpg.add_spacer(height=20) 
-                
-                    dpg.add_text("Mark changes on the active timeline to patch the master file with", wrap=500)
+                    dpg.add_text("N/A", tag="current_timecode_display", color=[255, 150, 0])
                     dpg.add_spacer(height=20) 
                     
                     with dpg.group(tag="add_group", horizontal=True):
@@ -523,18 +522,11 @@ def setup_gui():
                         # CLEAR BUTTON
                         dpg.add_button(label="Clear All", tag="clear_changes_button", callback=clear_changes)
                             
-                    dpg.add_text("N/A", tag="current_timecode_display", color=[255, 150, 0])
-                            
-                    dpg.add_separator()
-                    dpg.add_spacer(height=20) 
+                        # RENDER BUTTON
+                        dpg.add_button(label="Render", tag="render_button", callback=render_changes)
                         
-                    # RENDER BUTTON
-                    dpg.add_button(label="Render", tag="render_button", callback=render_changes)
-                    with dpg.tooltip("render_button"):
-                        dpg.add_text("Render and merge changes")
-                            
-                    dpg.add_separator()
-                    dpg.add_spacer(height=20) 
+                        dpg.add_separator()
+                        dpg.add_spacer(height=20) 
                 
                 # SOURCE PAGE
                 with dpg.tab(label="Source"):
@@ -609,8 +601,10 @@ async def render():
 
             if not patchwork_markers:
                 dpg.configure_item("clear_changes_button", enabled=False)
+                dpg.configure_item("render_button", enabled=False)
             else:
                 dpg.configure_item("clear_changes_button", enabled=True)
+                dpg.configure_item("render_button", enabled=True)
                         
             global current_timecode
             current_timecode = copy.copy(resolve.active_timeline.timecode)
