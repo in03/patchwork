@@ -19,11 +19,11 @@ def prompt(message:str, title:str="Dialog", show_ok:bool=True, show_cancel:bool=
         dpg.delete_item("dialog")
     
     with dpg.mutex():
-        
+    
         viewport_width = dpg.get_viewport_client_width()
         viewport_height = dpg.get_viewport_client_height()
         
-        with dpg.window(label=title, modal=True, no_title_bar=True, tag="dialog", **kwargs) as dialog_window:
+        with dpg.window(label=title, modal=True, no_title_bar=True, tag="dialog", **kwargs):
             dpg.add_text(message, wrap=wrap)
             dpg.add_separator()
             with dpg.group(horizontal=True, tag="dialog_buttons"):
@@ -35,8 +35,10 @@ def prompt(message:str, title:str="Dialog", show_ok:bool=True, show_cancel:bool=
                 
     dpg.split_frame()
     
+    # CENTER DIALOG
     width = dpg.get_item_width("dialog")
     height = dpg.get_item_height("dialog")
-    
     if width and height:
         dpg.set_item_pos("dialog", [viewport_width // 2 - width // 2, viewport_height // 2 - height // 2])
+        dpg.configure_item("dialog", show=True)
+        

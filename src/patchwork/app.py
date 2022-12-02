@@ -38,15 +38,23 @@ with dpg.value_registry():
     dpg.add_string_value(tag="loglevel", default_value="INFO")
 # logger.setLevel(dpg.get_value("loglevel"))
 
+global window_width
+width = 450
+
+global window_height
+height = 300
+
 dpg.set_global_font_scale(1.5)
-dpg.create_viewport(title='Patchwork 0.1.0', width=800, height=540)
 dpg.configure_app(init_file=os.path.join(root_folder, "dpg.ini"))
+dpg.create_viewport(title='Patchwork 0.1.0', width=450, height=250, resizable=False)
 dpg.set_viewport_always_top(True)
 dpg.setup_dearpygui()
 dpg.show_viewport()
 
+# Save init
 def save_init():
-    dpg.save_init_file("dpg.ini")
+    logger.info("[magenta]Saving gui configuration")
+    dpg.save_init_file(os.path.join(root_folder, "dpg.ini"))
     
 # RENDER PRESET
 def choose_render_preset_callback():
@@ -175,8 +183,8 @@ class TrackPatchfile():
             directory_selector=False, 
             default_path="Z:\\@Finished Renders", 
             show=False, 
-            callback=self.callback, 
-            cancel_callback=self.cancel_callback, 
+            callback=self.patchfile_chosen_callback, 
+            cancel_callback=self.patchfile_chosen_cancel_callback, 
             modal=True,
             width=600,
             height=400,
@@ -190,7 +198,7 @@ class TrackPatchfile():
         self.chosen_filename = ""
         self.chosen_filepath = ""
            
-    def callback(self, sender:str, app_data:dict):
+    def patchfile_chosen_callback(self, sender:str, app_data:dict):
         print('OK was clicked.')
         print("Sender: ", sender)
         print("App Data: ", app_data)
@@ -203,11 +211,12 @@ class TrackPatchfile():
         self.chosen_file = os.path.basename(self.chosen_filepath)
         self.chosen_filename = os.path.splitext(self.chosen_file)[0]
         
+        dpg.configure_item("add_button", enabled=True)
         dpg.configure_item("source_status", color=[100, 255, 100])
         dpg.set_value("source_status", f"Linked")
         dpg.set_value("track_file_input", self.chosen_filepath)
         
-    def cancel_callback(self, sender, app_data):
+    def patchfile_chosen_cancel_callback(self, sender, app_data):
         print('Cancel was clicked.')
         print("Sender: ", sender)
         print("App Data: ", app_data)       
@@ -258,6 +267,11 @@ class RenderPatchFile():
 
 track_patch_file = TrackPatchfile()
 render_patch_file = RenderPatchFile()
+
+# Callback
+def mouse_drag_callback():
+    logger.info("Saving init file")
+    save_init()
 
 # Helpers
 def should_refresh_now():
@@ -465,6 +479,10 @@ def init():
 
 def setup_gui():
     
+    with dpg.handler_registry():
+        ...
+    
+    # Configure disabled item theme
     with dpg.theme(tag="main_theme"):
         with dpg.theme_component(dpg.mvButton, enabled_state=False):
             dpg.add_theme_color(dpg.mvThemeCol_Text, (122, 122, 122))
@@ -473,8 +491,8 @@ def setup_gui():
         dpg.bind_theme("main_theme")
 
     
-    with dpg.window(tag="primary_window", autosize=True):
-        dpg.set_primary_window("primary_window", True)
+    with dpg.window(label="main_window", tag="main_window", autosize=True):
+        dpg.set_primary_window("main_window", True)
 
         # MENU BAR
         with dpg.menu_bar():
@@ -491,10 +509,6 @@ def setup_gui():
         # dpg.add_separator()
         
         dpg.add_spacer(height=20)
-        dpg.add_text("Link or create a new patchwork file", tag="master_status", color=[250, 150, 50], wrap=500)
-            
-        dpg.add_separator()
-        dpg.add_spacer(height=20) 
             
         # MASTER FILE
         with dpg.group(label="master_group", horizontal=True):
@@ -511,9 +525,9 @@ def setup_gui():
                     dpg.add_separator()
                     with dpg.group(horizontal=True):
                         
-                        dpg.add_button(label="Add", tag="add_button", callback=add_change)
-                        dpg.add_button(label="Clear All", tag="clear_changes_button", callback=clear_changes)
-                        dpg.add_button(label="Render", tag="render_button", callback=render_changes)
+                        dpg.add_button(label="Add", tag="add_button", enabled=False, callback=add_change)
+                        dpg.add_button(label="Clear All", tag="clear_changes_button", enabled=False, callback=clear_changes)
+                        dpg.add_button(label="Render", tag="render_button", enabled=False, callback=render_changes)
                         
                     dpg.add_separator()
                 
@@ -552,7 +566,7 @@ async def resolve_is_ready():
     await trio.sleep(0)
     return True
 
-async def render():
+async def gui_render():
     
     global refresh_now
         
@@ -615,13 +629,13 @@ async def main():
     
     # LOOP
     logger.debug("[magenta]Starting render cycle!")
+
     while dpg.is_dearpygui_running():
         async with trio.open_nursery() as nursery: 
-            nursery.start_soon(render)
+            nursery.start_soon(gui_render)
     
     # EXIT
     logger.debug("[magenta]Exiting!")
-    dpg.save_init_file(os.path.join(root_folder, "dpg.ini"))
     dpg.destroy_context()
 
 if __name__ == "__main__":
