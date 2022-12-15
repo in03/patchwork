@@ -40,11 +40,6 @@ window_height = 400
 # ALL DPG CALLS MUST BE MADE AFTER 'dpg.create_context()!
 dpg.create_context()
 #############################################################################
-
-# LOGLEVEL VALUE
-with dpg.value_registry():
-    dpg.add_string_value(tag="loglevel", default_value="INFO")
-# logger.setLevel(dpg.get_value("loglevel"))
     
   
 # File Dialog
@@ -323,6 +318,24 @@ def clear_markers():
     markers = copy.copy(resolve.active_timeline.markers)
     return True
 
+
+def menu_loglevel_callback(sender):
+    
+    # Uncheck all loglevel menu items
+    loglevel_menu_items = {
+        "DEBUG",
+        "INFO",
+        "WARNING",
+        "ERROR",
+        "CRITICAL",
+    }
+    [dpg.set_value(x, False) for x in loglevel_menu_items]
+    
+    # Check chosen item
+    dpg.set_value(sender, True)
+    logger.setLevel(sender)
+
+
 # Commands
 def add_change():
 
@@ -504,6 +517,12 @@ def setup_gui():
             with dpg.menu(label="Settings"):
                 dpg.add_menu_item(label="Always on top", check=True, tag="menu_always_on_top", default_value=True, callback=toggle_always_on_top)
                 dpg.add_menu_item(label="Preferences")
+                with dpg.menu(label="loglevel"):
+                    dpg.add_menu_item(label="DEBUG", check=True, tag="DEBUG", default_value=False, callback=menu_loglevel_callback)
+                    dpg.add_menu_item(label="INFO", check=True, tag="INFO", default_value=True, callback=menu_loglevel_callback)
+                    dpg.add_menu_item(label="WARNING", check=True, tag="WARNING", default_value=False, callback=menu_loglevel_callback)
+                    dpg.add_menu_item(label="ERROR", check=True, tag="ERROR", default_value=False, callback=menu_loglevel_callback)
+                    dpg.add_menu_item(label="CRITICAL", check=True, tag="CRITICAL", default_value=False, callback=menu_loglevel_callback)
                 
             with dpg.menu(label="Help"):
                 dpg.add_menu_item(label="About")
