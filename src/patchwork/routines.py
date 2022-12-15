@@ -174,6 +174,7 @@ async def check_timecode_starts_at_zero(current_frame_rate:float, current_timeco
     if not dismissed:  
         
         if Timecode(current_frame_rate, current_timecode).hrs >= 1:  
+            logger.debug("Prompting")
             dialog_box.prompt(
                 "Hey! Does your timeline timecode start at 01:00:00? If so, please set it to 00:00:00. "
                 "Resolve's API has a glitch that causes markers to appear an hour later on the timeline. "

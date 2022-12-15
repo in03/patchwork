@@ -15,6 +15,10 @@ from deepdiff import DeepDiff
 import trio
 import dearpygui.dearpygui as dpg
 
+from config import default_configuration as defaults
+from config import defaults_filepath
+from click import launch
+
 # Logging
 logging.basicConfig(
     level="INFO",
@@ -97,7 +101,7 @@ class TrackPatchfile():
 
 def choose_render_preset_callback():
     dpg.hide_item("preset_picker")
-    if dpg.get_value("preset_picker") == "-- Choose Render Preset --":
+    if dpg.get_value("preset_picker") == defaults['app']['render_preset']:
         dialog_box.prompt("Please choose a render preset to continue!")
         return
     
@@ -335,6 +339,10 @@ def menu_loglevel_callback(sender):
     dpg.set_value(sender, True)
     logger.setLevel(sender)
 
+def open_defaults_configuration():
+    
+    logger.info(f"[cyan]Opening defaults config file: {defaults_filepath}")
+    launch(defaults_filepath)
 
 # Commands
 def add_change():
@@ -506,6 +514,7 @@ def setup_gui():
             # dpg.mvThemeCol_ButtonHovered
         
         dpg.bind_theme("main_theme")
+        
 
     
     with dpg.window(label="main_window", tag="main_window", autosize=True):
@@ -516,7 +525,7 @@ def setup_gui():
 
             with dpg.menu(label="Settings"):
                 dpg.add_menu_item(label="Always on top", check=True, tag="menu_always_on_top", default_value=True, callback=toggle_always_on_top)
-                dpg.add_menu_item(label="Preferences")
+                dpg.add_menu_item(label="Configure defaults", callback=open_defaults_configuration)
                 with dpg.menu(label="loglevel"):
                     dpg.add_menu_item(label="DEBUG", check=True, tag="DEBUG", default_value=False, callback=menu_loglevel_callback)
                     dpg.add_menu_item(label="INFO", check=True, tag="INFO", default_value=True, callback=menu_loglevel_callback)
