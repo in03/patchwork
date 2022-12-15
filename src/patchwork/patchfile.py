@@ -9,8 +9,7 @@ from json import JSONDecodeError
 
 import logging
 
-logger = logging.getLogger(__name__)
-logger.setLevel(dpg.get_value("loglevel"))
+logger = logging.getLogger("patchwork")
 
 resolve = davinci.Resolve()
 

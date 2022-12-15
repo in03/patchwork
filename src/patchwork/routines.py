@@ -7,8 +7,7 @@ from widgets import dialog_box
 import trio
 import logging
 
-logger = logging.getLogger(__name__)
-logger.setLevel(dpg.get_value("loglevel"))
+logger = logging.getLogger("patchwork")
 
 def __compare_state():
     

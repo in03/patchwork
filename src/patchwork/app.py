@@ -22,7 +22,8 @@ logging.basicConfig(
     datefmt="[%X]",
     handlers=[RichHandler(rich_tracebacks=True, markup=True)],
 )
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("patchwork")
+logger.setLevel("INFO")
 
 # GLOBAL VARS
 app_file_path = Path(__file__)
