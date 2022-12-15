@@ -647,7 +647,7 @@ async def gui_render():
             
     await trio.sleep(0)
 
-async def main():
+async def event_loop():
     
     # SETUP
     logger.debug("[magenta]Initialising...")
@@ -666,6 +666,10 @@ async def main():
     # EXIT
     logger.debug("[magenta]Exiting!")
     dpg.destroy_context()
+    
+def main():
+    trio.run(event_loop)
+    
 
 if __name__ == "__main__":
-    trio.run(main)
+    main()
