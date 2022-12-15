@@ -24,3 +24,6 @@ outcome = "^1.2.0"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+patchwork = "src.patchwork.app:main"
