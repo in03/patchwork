@@ -9,26 +9,24 @@ from appdirs import AppDirs
 
 
 new_defaults = """# Please consider backing up this file and ensure you're familiar with toml.
-# Bookie will not be able to load an invalid toml file.
+# Patchwork will not be able to load an invalid toml file.
 
 [app]
 loglevel = "INFO" # See Python logging module for supported levels
-
-[mark]
-bookend_color = "Pink" # Refer to Resolve's supported colors (case-sensitive)
+starting_directory = "C:/" # Refer to Resolve's supported colors (case-sensitive)
 
 [render]
 render_preset = "H.264 Master"
-hide_generic_render_presets = true
+hide_generic_render_presets = false
 
 [advanced]
-marker_custom_data = "bookie_marker"
+advanced_stuff = false
 """
 
 default_configuration = {}
 
 
-logger = logging.getLogger("patchwork")
+logger = logging.getLogger("rich")
 logger.setLevel("INFO")
 
 appdir = AppDirs()

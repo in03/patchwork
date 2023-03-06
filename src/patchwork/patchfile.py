@@ -1,7 +1,7 @@
 
 from pydavinci import davinci
 from dearpygui import dearpygui as dpg
-from widgets import dialog_box
+from patchwork.widgets import dialog_box
 from deepdiff import DeepDiff
 import json
 from json import JSONDecodeError
@@ -9,7 +9,7 @@ from json import JSONDecodeError
 
 import logging
 
-logger = logging.getLogger("patchwork")
+logger = logging.getLogger("rich")
 
 resolve = davinci.Resolve()
 

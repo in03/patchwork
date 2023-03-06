@@ -15,18 +15,18 @@ from deepdiff import DeepDiff
 import trio
 import dearpygui.dearpygui as dpg
 
-from config import default_configuration as defaults
-from config import defaults_filepath
+from patchwork.config import default_configuration as defaults
+from patchwork.config import defaults_filepath
 from click import launch
 
 # Logging
 logging.basicConfig(
-    level="INFO",
+    level="NOTSET",
     format="%(message)s",
     datefmt="[%X]",
     handlers=[RichHandler(rich_tracebacks=True, markup=True)],
 )
-logger = logging.getLogger("patchwork")
+logger = logging.getLogger("rich")
 logger.setLevel("INFO")
 
 # GLOBAL VARS
@@ -44,127 +44,68 @@ window_height = 400
 # ALL DPG CALLS MUST BE MADE AFTER 'dpg.create_context()!
 dpg.create_context()
 #############################################################################
-    
-  
-# File Dialog
-class TrackPatchfile():
-    def __init__(self):
-        
-        global window_width
-        global window_height
-        
-        with dpg.file_dialog(
-            directory_selector=False, 
-            default_path="Z:/@FinishedRenders",
-            
-            show=False, 
-            callback=self.patchfile_chosen_callback, 
-            cancel_callback=self.patchfile_chosen_cancel_callback, 
-            modal=True,
-            width=window_width - 50,
-            height=window_height - 200,
-            tag="track_file_dialog",
-        ):
-        
-            dpg.add_file_extension(".patch", color=(255, 255, 0, 255))
-            dpg.add_file_extension(".*")
-        
-        self.chosen_file = ""
-        self.chosen_filename = ""
-        self.chosen_filepath = ""
-           
-    def patchfile_chosen_callback(self, sender:str, app_data:dict):
-        print('OK was clicked.')
-        print("Sender: ", sender)
-        print("App Data: ", app_data)
-        
-        if not app_data["selections"]:
-            dialog_box.prompt("No selection was made!")
-            return
-        
-        self.chosen_filepath = app_data['file_path_name']
-        self.chosen_file = os.path.basename(self.chosen_filepath)
-        self.chosen_filename = os.path.splitext(self.chosen_file)[0]
-        
-        global patchwork_file
-        patchwork_file = self.chosen_filepath
-        
-        dpg.configure_item("add_button", enabled=True)
-        dpg.configure_item("render_button", enabled=True)
-        dpg.configure_item("source_status", color=[100, 255, 100])
-        dpg.set_value("source_status", f"Linked: '{self.chosen_filename}'")
-        
-    def patchfile_chosen_cancel_callback(self, sender, app_data):
-        print('Cancel was clicked.')
-        print("Sender: ", sender)
-        print("App Data: ", app_data)       
 
-def choose_render_preset_callback():
-    dpg.hide_item("preset_picker")
-    if dpg.get_value("preset_picker") == defaults['app']['render_preset']:
-        dialog_box.prompt("Please choose a render preset to continue!")
+
+#############################################################################
+############################## CALLBACKS ####################################
+#############################################################################
+
+def select_patchfile_callback(sender, _, app_data:dict):
+    
+    global patchfile_data
+    global chosen_filepath
+    
+    logger.debug('[magenta]OK was clicked.')
+    print("Sender: ", sender)
+    print("App Data: ", app_data)
+    
+    if not app_data["selections"]:
+        dialog_box.prompt("No selection was made!")
         return
     
-    logger.info(f"[magenta]Chosen render preset: {dpg.get_value('chosen_render_preset')}")
-    patchfile.new(patchwork_file)
+    chosen_filepath = app_data['file_path_name']
+    
+    with open(chosen_filepath, "r") as patchfile:
+        patchfile_data = json.load(patchfile)
 
-# TODO: Get rid of these classes!
-# They're gross. Global state all the way!
-class RenderPatchFile():
-    def __init__(self):
-        
-        global window_width
-        global window_height
-        
-        with dpg.file_dialog(
-            directory_selector=True, 
-            default_path="Z:/@FinishedRenders", 
-            show=False, 
-            callback=self.picked_dir_callback, 
-            cancel_callback=self.picked_dir_cancel_callback, 
-            modal=True,
-            width=window_width - 50,
-            height=window_height - 200,
-            tag="render_file_dialog",
-        ):
-        
-            dpg.add_file_extension(".patch", color=(255, 255, 0, 255))
-            dpg.add_file_extension(".*")
-           
+    dpg.configure_item("render_preset", enabled=False)        
+    dpg.configure_item("source_status", color=[100, 255, 100])
+    dpg.set_value("source_status", f"Linked: '{os.path.basename(chosen_filepath).split('.patch')[0]}'")
+    
+def cancel_patchfile_callback(sender, _, app_data):
+    print('Cancel was clicked.')
+    print("Sender: ", sender)
+    print("App Data: ", app_data)       
 
-    def picked_dir_callback(self, sender:str, app_data:dict):
-        
-        print('OK was clicked.')
-        print("Sender: ", sender)
-        print("App Data: ", app_data)
-        
-        chosen_dirpath = app_data['file_path_name']
-        determined_filename = f"{resolve.project.name} - {resolve.active_timeline.name}"
-        
-        global patchwork_file
-        patchwork_file = f"{chosen_dirpath}{os.sep}{determined_filename}.patch"           
-                                      
-        with dpg.window(label="Render Presets", tag="preset_picker", autosize=True):
-            dpg.add_combo(resolve.project.render_presets, tag="chosen_render_preset", default_value="-- Choose Render Preset --")
-            dpg.add_button(label="Confirm", callback=choose_render_preset_callback)
-            
-            dpg.configure_item("source_status", color=[255, 150, 0])
-            dpg.set_value("source_status", f"Rendering \"{determined_filename}\"")
-        
-    def picked_dir_cancel_callback(self, sender, app_data):
-        print('Cancel was clicked.')
-        print("Sender: ", sender)
-        print("App Data: ", app_data)
+def select_render_dir_callback(sender:str, _, app_data:dict):
+    
+    print('OK was clicked.')
+    print("Sender: ", sender)
+    print("App Data: ", app_data)
+    
+    chosen_dirpath = app_data['file_path_name']
+    determined_filename = f"{resolve.project.name} - {resolve.active_timeline.name}"
+    
+    global patchwork_file
+    patchwork_file = f"{chosen_dirpath}{os.sep}{determined_filename}.patch"           
+                                    
+    dpg.configure_item("render_preset", enabled=True)
+    dpg.configure_item("source_status", color=[255, 150, 0])
+    dpg.set_value("source_status", f"Rendering \"{determined_filename}\"")
+    
+def cancel_render_dir_callback(sender, _, app_data):
+    print('Cancel was clicked.')
+    print("Sender: ", sender)
+    print("App Data: ", app_data)
 
-track_patch_file = TrackPatchfile()
-render_patch_file = RenderPatchFile()
-
-def exit_callback():
+def app_exit_callback():
     
     global config_file
     logger.info("[magenta]Writing viewport config to file")
     with open(config_file, "w") as json_file:
         json_file.write(json.dumps(get_current_viewport_config()))
+
+#############################################################################
 
 # Helpers
 
@@ -269,8 +210,6 @@ def create_marker():
 
     assert tc.frames is not None
     new_marker_frame_id = tc.frames -1
-    
-
     new_marker_start = tc.frames -1
     new_marker_end = new_marker_start + min_duration
     
@@ -293,8 +232,8 @@ def create_marker():
                     "Whoops, sorry. Changes can't overlap!\n"
                     f"A change added here would overlap with '{x.name}'"
                 )
-                return
-    
+                return None
+            
     if not resolve.active_timeline.markers.add(
         new_marker_start,
 
@@ -306,20 +245,39 @@ def create_marker():
         dialog_box.prompt("Sorry, Resolve says no. Maybe there's already a marker there?")
         return
 
+def set_marker_note(note:str):
+    timeline = resolve.active_timeline
+    framerate = resolve.active_timeline.settings.frame_rate
+    patchwork_markers = timeline.markers.find_all("patchwork_marker")
+    
+    print(note)
+    
+    tc = Timecode(framerate=framerate, start_timecode=timeline.timecode)
+    
+    assert patchwork_markers
+    for marker in patchwork_markers:
+        if tc.frames in range(marker.frameid, marker.frameid+marker.duration):
+            logger.info(f"[cyan]Added note: '{note}'")
+            marker.note = note
+            return True
+        
+    logger.warning("[yellow]Couldn't set marker description.")
+    return False
+        
+    
 def clear_markers():
     """
     Delete all patchwork markers
     """
     
-    global markers
     global force_refresh
     
-    if not markers:
+    patchwork_markers = resolve.active_timeline.markers.find_all("patchwork_marker")
+    
+    if not patchwork_markers:
         return False
     
-    [x.delete() for x in markers if x.customdata == "patchwork_marker"]
-    force_refresh = True
-    markers = copy.copy(resolve.active_timeline.markers)
+    [x.delete() for x in patchwork_markers]
     return True
 
 
@@ -346,9 +304,18 @@ def open_defaults_configuration():
 
 # Commands
 def add_change():
+    
+    def change_note_callback():
+        dpg.delete_item("change_note_popup")
+        set_marker_note()
+        
 
     global refresh_now
     create_marker()
+    with dpg.window(tag="change_note_popup", autosize=True, modal=True):
+        dpg.add_text("Add change note (optional)")
+        dpg.add_input_text(tag="marker_note")
+        dpg.add_button(label="Ok", callback=change_note_callback)
 
     refresh_now = True
     
@@ -455,9 +422,9 @@ def init():
     global routines
     global patchfile
     global dialog_box
-    import routines
-    import patchfile
-    from widgets import dialog_box
+    from patchwork import routines
+    from patchwork import patchfile
+    from patchwork.widgets import dialog_box
     
 
     # # Load logo image
@@ -504,19 +471,14 @@ def init():
 
 def setup_gui():
     
-    # with dpg.handler_registry():
-    #     ...
-    
     # Configure disabled item theme
     with dpg.theme(tag="main_theme"):
         with dpg.theme_component(dpg.mvButton, enabled_state=False):
             dpg.add_theme_color(dpg.mvThemeCol_Text, (122, 122, 122))
-            # dpg.mvThemeCol_ButtonHovered
-        
+        with dpg.theme_component(dpg.mvCombo, enabled_state=False):
+            dpg.add_theme_color(dpg.mvThemeCol_Text, (122, 122, 122))
         dpg.bind_theme("main_theme")
         
-
-    
     with dpg.window(label="main_window", tag="main_window", autosize=True):
         dpg.set_primary_window("main_window", True)
 
@@ -540,6 +502,46 @@ def setup_gui():
         # dpg.add_image("texture_tag") 
         # dpg.add_separator()
         
+        
+        ###############################################################
+        ################# TRACK FILE DIALOG ###########################
+        ###############################################################
+        
+        with dpg.file_dialog(
+            directory_selector=False, 
+            default_path=defaults['app']['starting_directory'],
+            
+            show=False, 
+            callback=select_patchfile_callback, 
+            cancel_callback=cancel_patchfile_callback, 
+            modal=True,
+            width=window_width - 50,
+            height=window_height - 75,
+            tag="track_file_dialog",
+        ):
+
+            dpg.add_file_extension(".patch", color=(255, 255, 0, 255))
+            dpg.add_file_extension(".*")
+         
+        ###############################################################
+        ################# RENDER FILE DIALOG ##########################
+        ###############################################################
+               
+        with dpg.file_dialog(
+            directory_selector=True, 
+            default_path=defaults['app']['starting_directory'], 
+            show=False, 
+            callback=select_render_dir_callback, 
+            cancel_callback=cancel_render_dir_callback, 
+            modal=True,
+            width=window_width - 50,
+            height=window_height - 75,
+            tag="render_file_dialog",
+        ):
+        
+            dpg.add_file_extension(".patch", color=(255, 255, 0, 255))
+            dpg.add_file_extension(".*")
+        
         dpg.add_spacer(height=20)
             
         # MASTER FILE
@@ -557,9 +559,9 @@ def setup_gui():
                     dpg.add_separator()
                     with dpg.group(horizontal=True):
                         
-                        dpg.add_button(label="Add", tag="add_button", enabled=False, callback=add_change)
-                        dpg.add_button(label="Clear All", tag="clear_changes_button", enabled=False, callback=clear_changes)
-                        dpg.add_button(label="Render", tag="render_button", enabled=False, callback=render_changes)
+                        dpg.add_button(label="Add", tag="add_button", callback=add_change)
+                        dpg.add_button(label="Clear All", tag="clear_changes_button", callback=clear_changes)
+                        dpg.add_button(label="Render", tag="render_button", callback=render_changes)
                         
                     dpg.add_separator()
                 
@@ -575,6 +577,7 @@ def setup_gui():
                         dpg.add_button(label="Link", tag="link_browse_button", callback=lambda: dpg.show_item("track_file_dialog"))
                         dpg.add_button(label="New", tag="render_browse_button", callback=lambda: dpg.show_item("render_file_dialog"))
                     dpg.add_separator()
+                    dpg.add_combo(items=resolve.project.render_presets, default_value=defaults['render']['render_preset'], tag="render_preset", enabled=False)
     
                     
 async def resolve_is_ready():
@@ -627,15 +630,15 @@ async def gui_render():
 
             global patchwork_file
             if patchwork_file:
-                dpg.configure_item("add_button", enabled=True)
+                dpg.configure_item("add_button")
                 
             if not patchwork_markers:
-                dpg.configure_item("clear_changes_button", enabled=False)
-                dpg.configure_item("render_button", enabled=False)
+                dpg.configure_item("clear_changes_button")
+                dpg.configure_item("render_button")
             else:
-                dpg.configure_item("clear_changes_button", enabled=True)
+                dpg.configure_item("clear_changes_button")
                 if patchwork_file:
-                    dpg.configure_item("render_button", enabled=True)
+                    dpg.configure_item("render_button")
                 
                         
             global current_timecode
@@ -667,7 +670,7 @@ async def event_loop():
     # LOOP
     logger.debug("[magenta]Starting render cycle!")
 
-    dpg.set_exit_callback(exit_callback)
+    dpg.set_exit_callback(app_exit_callback)
     while dpg.is_dearpygui_running():
         async with trio.open_nursery() as nursery: 
             nursery.start_soon(gui_render)

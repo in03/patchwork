@@ -3,11 +3,11 @@ from dearpygui import dearpygui as dpg
 from pydavinci.wrappers.marker import MarkerCollection, Marker
 from pydavinci import davinci
 from pydavinci.exceptions import TimelineNotFound
-from widgets import dialog_box
+from patchwork.widgets import dialog_box
 import trio
 import logging
 
-logger = logging.getLogger("patchwork")
+logger = logging.getLogger("rich")
 
 def __compare_state():
     
