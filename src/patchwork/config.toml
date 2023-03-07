@@ -1,0 +1,9 @@
+[app]
+loglevel = "INFO" # See Python logging module for supported levels
+render_directory = "Z:/@FinishedRenders"
+
+[render]
+hide_generic_render_presets = true
+
+[advanced]
+advanced_stuff = false

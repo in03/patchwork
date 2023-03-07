@@ -1,4 +1,3 @@
-from patchwork import config
-from patchwork import routines
-from patchwork import app
-from patchwork import widgets
+import os
+
+CONFIG_FILE = os.path.join(os.path.dirname(__file__), "config.toml")
