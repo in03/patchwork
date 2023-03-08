@@ -12,10 +12,12 @@ pydavinci = {git = "https://github.com/in03/pydavinci"}
 timecode = "^1.3.1"
 rich = "^12.6.0"
 dearpygui = "^1.8.0"
-toml = "^0.10.2"
 ffmpeg-python = "^0.2.0"
 typer = "^0.7.0"
 inquirer = "^3.1.3"
+pydantic = "^1.10.5"
+rtoml = "^0.9.0"
+pyfiglet = "^0.8.post1"
 
 [build-system]
 requires = ["poetry-core"]
