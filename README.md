@@ -15,12 +15,22 @@ Okay, so that makes subsequent renders faster. But with multiple computers, it a
 Splitting the initial render a into multiple segments allows for the job to be distributed to multiple computers with Resolve's built in remote-render functionality. Traditionally remote-render is reserved for a queue of individual deliverables, not parallel computing on a single job. By splitting and joining at nearest GOP I-frames, inter-frame compression codecs can also be supported.
 
 ### How?
-1. Calculate changes/segments
-2. Queue using DaVinci Resolve's Python API
-3. Concatenate losslessly with Ffmpeg
+1. Render master file and generate sidecar (environment, render metadata)
+2. Make changes and mark them on the timeline
+3. Link to master file and sidecar
+4. Calculate patches from markers (start, duration)
+5. Validate master file, sidecar
+6. Render patches in Resolve, inheriting sidecar settings
+8. Split master file into "kept" segments, omitting segments to be patched
+9. Concatenate all segments
 
 ## Roadmap
-- [x] Initial logic and GUI
+- [x] CLI app skeleton
+- [x] Initial sidecar logic
+- [x] Render master file from Patchwork
 - [ ] Support patching all-intra codecs
 - [ ] Support patching inter-frame codecs
+- [ ] Distributed initial render (chunk and network-render master file)
+- [ ] A sleek little GUI
 - [ ] Support automatic diffing (no manually marked changes)
+- [ ] PyInstaller distributable binaries
