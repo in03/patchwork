@@ -3,6 +3,7 @@ from patchwork import app
 from rich import print
 from rich.panel import Panel
 
+from patchwork.settings.manager import settings
 typer_app = typer.Typer()
 
 

@@ -2,18 +2,16 @@ import json
 import os
 import time
 from tkinter import filedialog, messagebox
+from typing import Literal
 
 import ffmpeg
-import inquirer
-import toml
 from pydavinci import davinci
 from pydavinci.wrappers.marker import Marker
 from rich import print
 from rich.progress import Progress
-from rich.prompt import Confirm
 
-from patchwork import CONFIG_FILE, helpers
-from patchwork.constants import STANDARD_RENDER_PRESETS
+from patchwork import helpers
+from patchwork.settings.manager import settings
 
 resolve = davinci.Resolve()
 
